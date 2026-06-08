@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeonWave</title>
+    <link rel="stylesheet" href="css/style.css?v=400">
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+            position: relative;
+            background: #0a0e1a;
+            background-image:
+                linear-gradient(rgba(79, 140, 255, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(79, 140, 255, 0.04) 1px, transparent 1px),
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(79, 140, 255, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse 60% 40% at 80% 100%, rgba(99, 102, 241, 0.08) 0%, transparent 50%);
+            background-size: 30px 30px, 30px 30px, 100% 100%, 100% 100%;
+            background-position: -1px -1px, -1px -1px, 0 0, 0 0;
+        }
+
+        .login-wrapper {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 440px;
+            padding: 0 20px;
+        }
+
+        .login-card {
+            padding: 48px 40px;
+            border-radius: 18px;
+            background: rgba(15, 22, 40, 0.85);
+            border: 1px solid rgba(79, 140, 255, 0.15);
+            backdrop-filter: blur(24px);
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4), 0 0 32px rgba(79, 140, 255, 0.08);
+            animation: fadeSlideUp 0.6s ease-out;
+        }
+
+        .logo-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #3b82f6 100%);
+            box-shadow: 0 4px 20px rgba(79, 140, 255, 0.35);
+            transition: transform 0.3s ease;
+        }
+
+        .logo-icon:hover {
+            transform: scale(1.1) rotate(-5deg);
+        }
+
+        .login-title {
+            font-size: 2rem;
+            font-weight: 800;
+            text-align: center;
+            letter-spacing: -0.03em;
+            color: white;
+        }
+
+        .login-subtitle {
+            text-align: center;
+            color: #7f8ea3;
+            font-size: 0.9rem;
+            margin-top: 8px;
+            margin-bottom: 28px;
+        }
+
+        /* Tabs */
+        .auth-tabs {
+            display: flex;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 28px;
+        }
+
+        .auth-tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #7f8ea3;
+            background: transparent;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.25s;
+            font-family: inherit;
+        }
+
+        .auth-tab.active {
+            background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+            color: white;
+            box-shadow: 0 2px 12px rgba(79, 140, 255, 0.3);
+        }
+
+        .auth-tab:not(.active):hover {
+            color: white;
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .auth-form {
+            display: none;
+        }
+
+        .auth-form.active {
+            display: block;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-label {
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #7f8ea3;
+            margin-bottom: 8px;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 12px;
+            letter-spacing: 0.02em;
+            background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #3b82f6 100%);
+            box-shadow: 0 4px 16px rgba(79, 140, 255, 0.35);
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .login-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 24px rgba(79, 140, 255, 0.5);
+        }
+
+        .login-btn:active {
+            transform: scale(0.97);
+        }
+
+        .login-btn:disabled {
+            opacity: 0.6;
+            cursor: wait;
+            transform: none;
+        }
+
+        .error-msg {
+            color: #ff4757;
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(255, 71, 87, 0.08);
+            border: 1px solid rgba(255, 71, 87, 0.2);
+            display: none;
+            margin-bottom: 16px;
+        }
+
+        .error-msg.visible {
+            display: block;
+            animation: fadeSlideUp 0.3s ease-out;
+        }
+
+        .success-msg {
+            color: #10b981;
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            display: none;
+            margin-bottom: 16px;
+        }
+
+        .success-msg.visible {
+            display: block;
+            animation: fadeSlideUp 0.3s ease-out;
+        }
+
+        .login-footer {
+            text-align: center;
+            color: #4a5568;
+            font-size: 0.75rem;
+            margin-top: 32px;
+            letter-spacing: 0.02em;
+        }
+
+        /* Background orbs */
+        .bg-circle {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(100px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-circle-1 {
+            width: 500px;
+            height: 500px;
+            background: rgba(79, 140, 255, 0.08);
+            top: -150px;
+            right: -100px;
+            animation: float 8s ease-in-out infinite;
+        }
+
+        .bg-circle-2 {
+            width: 400px;
+            height: 400px;
+            background: rgba(99, 102, 241, 0.06);
+            bottom: -100px;
+            left: -100px;
+            animation: float 10s ease-in-out infinite reverse;
+        }
+
+        .bg-circle-3 {
+            width: 200px;
+            height: 200px;
+            background: rgba(139, 92, 246, 0.05);
+            top: 40%;
+            left: 60%;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-20px);
+            }
+        }
+
+        @keyframes fadeSlideUp {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="bg-circle bg-circle-1"></div>
+    <div class="bg-circle bg-circle-2"></div>
+    <div class="bg-circle bg-circle-3"></div>
+
+    <div class="login-wrapper">
+        <div class="login-card">
+            <img src="nw.png" class="logo-icon" alt="NeonWave Logo">
+            <h1 class="login-title">Neon<span style="color:#5b9aff">Wave</span></h1>
+            <p class="login-subtitle">Votre musique, sans limites</p>
+
+            <!-- Tabs -->
+            <div class="auth-tabs">
+                <button class="auth-tab active" onclick="switchTab('login')">Connexion</button>
+                <button class="auth-tab" onclick="switchTab('register')">Créer un compte</button>
+            </div>
+
+            <div id="errorMessage" class="error-msg"></div>
+            <div id="successMessage" class="success-msg"></div>
+
+            <!-- Login Form -->
+            <form id="loginForm" class="auth-form active">
+                <div class="input-group">
+                    <label class="input-label">Email</label>
+                    <input type="email" id="loginEmail" required class="neon-input" placeholder="votre@email.com"
+                        autocomplete="email">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Mot de passe</label>
+                    <input type="password" id="loginPassword" required class="neon-input" placeholder="••••••••"
+                        autocomplete="current-password">
+                </div>
+                
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px; cursor:pointer;" onclick="document.getElementById('rememberMe').click()">
+                    <input type="checkbox" id="rememberMe" style="width:18px;height:18px;cursor:pointer;accent-color:var(--accent);">
+                    <label style="font-size:0.85rem; color:#7f8ea3; cursor:pointer; user-select:none;">Se souvenir de moi</label>
+                </div>
+                <button type="submit" class="login-btn" id="loginBtn">Se connecter</button>
+            </form>
+
+            <!-- Register Form -->
+            <form id="registerForm" class="auth-form">
+                <div class="input-group">
+                    <label class="input-label">Pseudo</label>
+                    <input type="text" id="regUsername" required class="neon-input" placeholder="votre pseudo"
+                        minlength="2" maxlength="24" autocomplete="username">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Email</label>
+                    <input type="email" id="regEmail" required class="neon-input" placeholder="votre@email.com"
+                        autocomplete="email">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Mot de passe</label>
+                    <input type="password" id="regPassword" required class="neon-input"
+                        placeholder="8 caracteres minimum" minlength="8" autocomplete="new-password">
+                </div>
+                <button type="submit" class="login-btn" id="registerBtn">Créer mon compte</button>
+            </form>
+
+            <!-- First Run Setup Form -->
+            <form id="setupForm" class="auth-form">
+                <div class="input-group">
+                    <label class="input-label">Pseudo proprietaire</label>
+                    <input type="text" id="setupUsername" class="neon-input" placeholder="Admin" minlength="2"
+                        maxlength="24" autocomplete="username">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Email proprietaire</label>
+                    <input type="email" id="setupEmail" class="neon-input" placeholder="admin@neonwave.local"
+                        autocomplete="email">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">Mot de passe proprietaire</label>
+                    <input type="password" id="setupPassword" class="neon-input"
+                        placeholder="8 caracteres minimum" minlength="8" autocomplete="new-password">
+                </div>
+                <button type="submit" class="login-btn" id="setupBtn">Configurer NeonWave</button>
+            </form>
+
+            <p class="login-footer">NeonWave &copy; 2026 — Streaming musical gratuit</p>
+        </div>
+    </div>
+
+    <script src="js/auth.js"></script>
+    <script>
+        async function refreshSetupState() {
+            const setupForm = document.getElementById('setupForm');
+            try {
+                const status = await Auth.getSetupStatus();
+                if (!status.required) {
+                    setupForm.classList.remove('active');
+                    return;
+                }
+
+                document.querySelector('.auth-tabs').style.display = 'none';
+                document.querySelector('.login-subtitle').textContent = 'Premiere installation - cree le compte proprietaire';
+                document.getElementById('loginForm').classList.remove('active');
+                document.getElementById('registerForm').classList.remove('active');
+                setupForm.classList.add('active');
+            } catch (err) {
+                const errorEl = document.getElementById('errorMessage');
+                errorEl.textContent = err.message || 'Impossible de joindre le serveur.';
+                errorEl.classList.add('visible');
+            }
+        }
+
+        function switchTab(tab) {
+            if (document.getElementById('setupForm').classList.contains('active')) return;
+            document.querySelectorAll('.auth-tab').forEach((t, i) => {
+                t.classList.toggle('active', (tab === 'login' && i === 0) || (tab === 'register' && i === 1));
+            });
+            document.getElementById('loginForm').classList.toggle('active', tab === 'login');
+            document.getElementById('registerForm').classList.toggle('active', tab === 'register');
+            document.getElementById('errorMessage').classList.remove('visible');
+            document.getElementById('successMessage').classList.remove('visible');
+        }
+
+        // Login
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const rememberMe = document.getElementById('rememberMe').checked;
+            const btn = document.getElementById('loginBtn');
+            const errorEl = document.getElementById('errorMessage');
+
+            btn.textContent = 'Connexion en cours...';
+            btn.disabled = true;
+            errorEl.classList.remove('visible');
+
+            try {
+                await Auth.login(email, password, rememberMe);
+                btn.textContent = '✓ Connecté !';
+                btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                setTimeout(() => window.location.href = '/', 500);
+            } catch (err) {
+                errorEl.textContent = err.message || 'Impossible de joindre le serveur.';
+                errorEl.classList.add('visible');
+                btn.textContent = 'Se connecter';
+                btn.disabled = false;
+            }
+        });
+
+        // Register
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('regUsername').value;
+            const email = document.getElementById('regEmail').value;
+            const password = document.getElementById('regPassword').value;
+            const btn = document.getElementById('registerBtn');
+            const errorEl = document.getElementById('errorMessage');
+
+            btn.textContent = 'Création en cours...';
+            btn.disabled = true;
+            errorEl.classList.remove('visible');
+
+            try {
+                await Auth.register(username, email, password);
+                btn.textContent = '✓ Compte créé !';
+                btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                setTimeout(() => window.location.href = '/', 500);
+            } catch (err) {
+                errorEl.textContent = err.message || 'Impossible de joindre le serveur.';
+                errorEl.classList.add('visible');
+                btn.textContent = 'Créer mon compte';
+                btn.disabled = false;
+            }
+        });
+
+        // First run setup
+        document.getElementById('setupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('setupUsername').value;
+            const email = document.getElementById('setupEmail').value;
+            const password = document.getElementById('setupPassword').value;
+            const btn = document.getElementById('setupBtn');
+            const errorEl = document.getElementById('errorMessage');
+
+            btn.textContent = 'Configuration...';
+            btn.disabled = true;
+            errorEl.classList.remove('visible');
+
+            try {
+                await Auth.setupOwner(username, email, password);
+                btn.textContent = 'NeonWave configure !';
+                btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                setTimeout(() => window.location.href = '/', 500);
+            } catch (err) {
+                errorEl.textContent = err.message || 'Impossible de configurer NeonWave.';
+                errorEl.classList.add('visible');
+                btn.textContent = 'Configurer NeonWave';
+                btn.disabled = false;
+            }
+        });
+
+        refreshSetupState();
+    </script>
+</body>
+
+</html>

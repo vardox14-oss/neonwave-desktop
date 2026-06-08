@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeonWave</title>
+    <link rel="stylesheet" href="css/style.css?v=20260608-studio">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- ═══ Top Header ═══ -->
+        <header class="top-bar">
+            <!-- Left: Logo -->
+            <div class="top-brand" style="display:flex;align-items:center;gap:12px;cursor:pointer;"
+                onclick="location.reload()">
+                <img src="nw.png" alt="NeonWave Logo"
+                    style="width:38px;height:38px;border-radius:10px;object-fit:cover;box-shadow:0 2px 12px rgba(79,140,255,0.3);">
+                <span style="font-size:1.1rem;font-weight:800;letter-spacing:-0.03em;color:white;">Neon<span
+                        style="color:var(--accent-bright)">Wave</span></span>
+            </div>
+
+            <!-- Center: Search -->
+            <div class="top-search-group" style="display:flex;align-items:center;gap:8px;">
+                <button class="top-icon-btn" onclick="showView('home')"
+                    style="width:42px;height:42px;border-radius:10px;background:var(--bg-elevated);border:1px solid var(--glass-border);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;"
+                    onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent-bright)'"
+                    onmouseout="this.style.borderColor='var(--glass-border)';this.style.color='var(--text-secondary)'">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    </svg>
+                </button>
+                <button class="top-icon-btn mobile-library-btn"
+                    onclick="showView('library'); Playlists.renderLikedTracks();"
+                    style="width:42px;height:42px;border-radius:10px;background:var(--bg-elevated);border:1px solid var(--glass-border);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;"
+                    onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent-bright)'"
+                    onmouseout="this.style.borderColor='var(--glass-border)';this.style.color='var(--text-secondary)'">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                    </svg>
+                </button>
+                <div class="top-search-wrap" style="position:relative;width:380px;max-width:45vw;">
+                    <input type="text" id="searchInput" placeholder="Rechercher un titre, artiste, album..."
+                        class="neon-input" style="padding-left:44px;padding-right:16px;height:42px;"
+                        onclick="showView('search')">
+                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"
+                        style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--text-muted);">
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="M21 21l-4.35-4.35" />
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Right: Profile -->
+            <div class="top-actions" style="display:flex;align-items:center;gap:12px;">
+                <div id="userBadge"
+                    style="width:36px;height:36px;border-radius:10px;background:var(--accent-gradient);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.8rem;cursor:pointer;box-shadow:0 2px 12px rgba(79,140,255,0.25);"
+                    onclick="Settings.open()">?</div>
+            </div>
+        </header>
+
+        <!-- ═══ Middle Row ═══ -->
+        <div class="middle-row">
+
+            <!-- Left Sidebar (Library) -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <div class="lib-title" onclick="showView('library'); Playlists.renderLikedTracks();">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                            fill="none">
+                            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                        </svg>
+                        Bibliothèque
+                    </div>
+                    <button onclick="Playlists.showCreateModal()" title="Créer une playlist"
+                        style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:4px;display:flex;align-items:center;border-radius:6px;transition:all 0.2s;"
+                        onmouseover="this.style.background='rgba(79,140,255,0.1)';this.style.color='var(--accent-bright)'"
+                        onmouseout="this.style.background='none';this.style.color='var(--text-muted)'">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                            fill="none">
+                            <path d="M12 5v14" />
+                            <path d="M5 12h14" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="sidebar-filters">
+                    <button class="sidebar-filter-btn"
+                        onclick="Playlists.renderLikedTracks(); showView('library');">Likés</button>
+                    <button class="sidebar-filter-btn" onclick="Playlists.showCreateModal();">+ Playlist</button>
+                    <button class="sidebar-filter-btn is-accent" onclick="Playlists.showImportPicker();">Importer</button>
+                </div>
+                <div class="library-list" id="sidebarLibraryList">
+                    <div class="library-item" onclick="showView('library')">
+                        <div class="img-box" style="background:linear-gradient(135deg, #1e3a8a, #2563eb);"><svg
+                                viewBox="0 0 24 24" width="20" height="20" fill="white">
+                                <path
+                                    d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                            </svg></div>
+                        <div class="info">
+                            <div class="title" style="color:var(--accent-bright);">Titres likés</div>
+                            <div class="subtitle"><svg viewBox="0 0 24 24" width="12" height="12" fill="var(--accent)">
+                                    <path
+                                        d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
+                                </svg> Playlist • 18 titres</div>
+                        </div>
+                    </div>
+                    <div class="library-item">
+                        <div class="img-box"><img
+                                src="https://images.unsplash.com/photo-1493225255756-d9584f8606e9?w=100&q=80"
+                                alt="Cover"></div>
+                        <div class="info">
+                            <div class="title">vardox58</div>
+                            <div class="subtitle">Playlist • vardox58</div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Center Main Content -->
+            <main class="main-content">
+                <div class="main-gradient-bg" id="mainGradient"></div>
+
+                <div class="main-header-content">
+                    <div class="main-filters">
+                        <button class="main-filter-btn active" data-search-filter="all">Tout</button>
+                        <button class="main-filter-btn" data-search-filter="music">Musique</button>
+                        <button class="main-filter-btn" data-search-filter="podcasts">Podcasts</button>
+                        <button class="main-filter-btn" data-search-filter="albums">Albums</button>
+                    </div>
+
+                    <div id="homeView">
+                        <!-- 2x4 Quick Access Grid (Spotify Style) -->
+                        <div class="shortcuts-grid" id="homeShortcutsGrid">
+                            <!-- Dynamic shortcuts will be injected here -->
+                        </div>
+
+                        <section id="recentSection" class="hidden">
+                            <h2 class="section-title">Récemment joués</h2>
+                            <div id="recentlyPlayedTracks" class="track-grid"></div>
+                        </section>
+
+
+                        <h2 id="homeSectionTitle" class="section-title">Conçu spécialement pour vous</h2>
+                        <div id="popularTracks" class="track-grid"></div>
+
+                    </div>
+
+                    <div id="searchView" class="hidden">
+                        <div id="mobileSearchHeader" class="search-categories-panel">
+                            <div class="search-title-mobile">Rechercher</div>
+                            <div class="search-bar-mobile">
+                                <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="3" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                                <input type="text" id="mobileSearchInput" placeholder="Que souhaitez-vous écouter ?" autocomplete="off">
+                            </div>
+                        </div>
+                        <div id="searchCategories" class="hidden"></div>
+
+                        <div id="searchResultsRoot" class="hidden">
+                            <div id="searchResultsWrapper" class="hidden">
+                                <h2 class="section-title">Résultats pour <span id="searchTerm" style="color:var(--accent-bright);">...</span></h2>
+                                <p id="searchSummary" class="search-summary">Résultats immersifs (titres, albums, podcasts).</p>
+                            </div>
+                            <div id="searchSpotlight" class="search-spotlight">
+                                <section class="search-card search-song-results-panel">
+                                    <div class="search-block-header">
+                                        <div class="search-block-title">Titres</div>
+                                        <div id="searchSongsMeta" class="search-meta-copy"></div>
+                                    </div>
+                                    <div id="searchResults" class="track-list" data-display="rows"></div>
+                                </section>
+                            </div>
+
+                            <section id="searchAlbumsSection" class="search-albums-section">
+                                <div class="search-block-header">
+                                    <div class="search-block-title">Albums</div>
+                                    <div id="searchAlbumsMeta" class="search-meta-copy"></div>
+                                </div>
+                                <div id="albumResults" class="album-grid hidden"></div>
+                            </section>
+                        </div>
+                    </div>
+
+                    <div id="albumView" class="hidden">
+                        <div id="albumViewContent"></div>
+                    </div>
+
+                    <div id="artistView" class="hidden">
+                        <div id="artistViewContent"></div>
+                    </div>
+
+                    <div id="libraryView" class="hidden">
+                        <div class="library-header-mobile">
+                            <div class="lib-left">
+                                <div class="user-avatar-small" id="userBadge" onclick="Settings.open()">A</div>
+                                <div class="lib-title-main">Bibliothèque</div>
+                            </div>
+                            <div class="lib-actions">
+                                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                            </div>
+                        </div>
+                        
+                        <div class="library-filters-mobile">
+                            <button class="lib-filter-pill active">Playlists</button>
+                            <button class="lib-filter-pill">Artistes</button>
+                            <button class="lib-filter-pill">Téléchargé</button>
+                        </div>
+
+                        <!-- 🆕 Sorting & View Controls Row -->
+                        <div class="library-sort-row">
+                            <div class="lib-sort-left">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M15 12l-5-5v10l5-5z"/></svg>
+                                <span>Récents</span>
+                            </div>
+                            <div class="lib-sort-right">
+                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                            </div>
+                        </div>
+
+                        <!-- 🆕 Container for playlists/artists/collections -->
+                        <div id="libraryCollections" class="library-collections-list">
+                            <!-- Items rendered via Playlists.renderLibraryView() -->
+                        </div>
+
+                        <!-- Hidden track list for when 'Titres likés' is opened -->
+                        <div id="favoriteTracks" class="track-list hidden" data-display="rows"></div>
+                    </div>
+
+                    <div id="playlistView" class="hidden">
+                        <section class="playlist-hero">
+                            <div class="playlist-hero-art">
+                                <span>NW</span>
+                                <div class="playlist-hero-glow"></div>
+                            </div>
+                            <div class="playlist-hero-copy">
+                                <span class="eyebrow">Playlist personnelle</span>
+                                <h2 id="playlistViewTitle">Playlist</h2>
+                                <p id="playlistViewMeta">0 titre</p>
+                                <div class="playlist-hero-actions">
+                                    <button id="playlistPlayBtn" class="premium-action-btn is-primary">Lire</button>
+                                    <button id="playlistShareBtn" class="premium-action-btn">Partager</button>
+                                </div>
+                            </div>
+                        </section>
+                        <div id="playlistTracks" class="track-list" data-display="rows"></div>
+                    </div>
+                </div>
+            </main>
+
+
+            <!-- ═══ Now Playing Panel (Right Column) ═══ -->
+            <aside id="nowPlayingPanel" class="now-playing-panel">
+                <div class="np-header">
+                    <div class="np-title-stack">
+                        <div class="np-title-top" id="npPanelTitle">En lecture</div>
+                        <div class="np-session-caption" id="npPanelCaption">Lecture en cours</div>
+                    </div>
+                    <div class="np-header-actions">
+                        <button class="np-icon-btn" type="button" onclick="NowPlayingPanel.closePanel()" title="Fermer">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <section class="np-stage" id="npStage">
+
+                    <div class="np-cover-container">
+                        <img id="npCoverImg"
+                            src="https://images.unsplash.com/photo-1493225255756-d9584f8606e9?w=500&auto=format&fit=crop"
+                            alt="Cover en lecture">
+                        <div id="videoPlayerFrame"></div>
+                    </div>
+
+                </section>
+                
+                <!-- Hidden/Missing Elements for JS Compatibility -->
+                <div class="hidden">
+                    <span id="npVideoLabel"></span>
+                    <span id="npVideoLabelAlt"></span>
+                    <span id="npTitleAlt"></span>
+                    <span id="npArtistAlt"></span>
+                    <span id="npCreditsArtist"></span>
+                    <span id="npSessionLabel"></span>
+                </div>
+
+                <div class="np-track-info">
+                    <div id="npTitle" class="title">Rien en lecture</div>
+                    <div id="npArtist" class="artist">—</div>
+                </div>
+
+                <section class="np-lyrics-container" id="npLyricsPanel">
+                    <div class="np-lyrics-header" onclick="Karaoke.open()" onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: opacity 0.2s;" title="Ouvrir le Karaoké plein écran">
+                        <span>Paroles</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span id="npLyricsSource" class="lyrics-source"></span>
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-bright); vertical-align: middle;">
+                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                                <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+                                <line x1="12" x2="12" y1="19" y2="22"></line>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="np-lyrics-content" id="npLyricsContent" data-state="empty">
+                        <div class="lyrics-state">Lance un titre pour afficher les paroles.</div>
+                    </div>
+                </section>
+
+                <!-- Queue Preview -->
+                <div class="np-box" id="npQueueBox">
+                    <div class="np-box-header">
+                        <span class="np-box-title">À suivre</span>
+                        <button class="np-box-action" onclick="NowPlayingPanel.toggleQueuePreview()">Voir tout</button>
+                    </div>
+                    <div id="npQueuePreview" class="np-queue-preview">
+                        <!-- Rendered via JS -->
+                    </div>
+                </div>
+
+                <!-- 📱 New Spotify-style Mobile UI (Visible only on mobile via CSS) -->
+                <div class="mobile-player-ui" id="mobilePlayerUI">
+                    <div class="mp-header">
+                        <button class="mp-icon-btn" onclick="NowPlayingPanel.closePanel()">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M6 9l6 6 6-6"/>
+                            </svg>
+                        </button>
+                        <div class="mp-header-info">
+                            <span class="mp-subtitle">Lecture en cours</span>
+                            <span id="mpHeaderContext" class="mp-context-name">Ma Bibliothèque</span>
+                        </div>
+                        <button class="mp-icon-btn">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                                <circle cx="12" cy="12" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="12" cy="19" r="2"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="mp-artwork-container">
+                        <img id="mpCoverImg" src="" alt="Cover">
+                    </div>
+
+                    <div class="mp-track-info-row">
+                        <div class="mp-track-copy">
+                            <div id="mpTitle" class="mp-title">Rien en lecture</div>
+                            <div id="mpArtist" class="mp-artist">-</div>
+                        </div>
+                    </div>
+
+                    <div class="mp-progress-section">
+                        <input type="range" id="mpProgressSlider" class="mp-slider" value="0" min="0" max="100">
+                        <div class="mp-time-labels">
+                            <span id="mpCurrentTime">0:00</span>
+                            <span id="mpDuration">0:00</span>
+                        </div>
+                    </div>
+
+                    <div class="mp-controls">
+                        <button id="mpShuffleBtn" class="mp-ctrl-btn" onclick="Player.toggleShuffle()">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+                            </svg>
+                        </button>
+                        <button id="mpPrevBtn" class="mp-ctrl-btn" onclick="Player.prevTrack()">
+                            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+                                <polygon points="19 20 9 12 19 4 19 20"/><rect x="5" y="4" width="2" height="16"/>
+                            </svg>
+                        </button>
+                        <button id="mpPlayBtn" class="mp-play-btn" onclick="Player.togglePlay()">
+                            <svg id="mpPlayIcon" viewBox="0 0 24 24" width="32" height="32" fill="black">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            <svg id="mpPauseIcon" viewBox="0 0 24 24" width="32" height="32" fill="black" style="display:none;">
+                                <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+                            </svg>
+                        </button>
+                        <button id="mpNextBtn" class="mp-ctrl-btn" onclick="Player.nextTrack()">
+                            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+                                <polygon points="5 4 15 12 5 20 5 4"/><rect x="17" y="4" width="2" height="16"/>
+                            </svg>
+                        </button>
+                        <button id="mpRepeatBtn" class="mp-ctrl-btn" onclick="Player.toggleRepeat()">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="mp-bottom-actions">
+                        <button class="mp-action-icon">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                            </svg>
+                        </button>
+                        <button class="mp-action-icon" onclick="Karaoke.toggle()" title="Karaoké" style="color: var(--accent-bright);">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                                <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+                                <line x1="12" x2="12" y1="19" y2="22"></line>
+                            </svg>
+                        </button>
+                        <div class="mp-action-spacer"></div>
+                        <button class="mp-action-icon" onclick="NowPlayingPanel.toggleQueuePreview()">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="mp-discover-card" id="mpDiscoverCard">
+                        <div class="mp-discover-bg" id="mpDiscoverBg"></div>
+                        <div class="mp-discover-content">
+                            <span class="mp-discover-badge">Découvrez l'artiste</span>
+                            <h3 id="mpDiscoverName">L'Artiste</h3>
+                            <button class="mp-follow-btn">Suivre</button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </div>
+
+        <!-- ═══ Player Footer ═══ -->
+        <footer class="player-footer">
+            <div class="footer-left" id="mobilePlayerTrigger" onclick="if(window.innerWidth <= 768) NowPlayingPanel.togglePanel()">
+                <div class="thumb" id="playerThumb">
+                    <img id="nowPlayingImg" src="">
+                </div>
+                <div class="info">
+                    <div class="title-row" style="display:flex; align-items:baseline; gap:8px;">
+                        <div id="nowPlayingTitle" class="title">Rien en lecture</div>
+                        <span id="timeRemaining" class="time-remaining" style="display:none;"></span>
+                        <span id="loopStatusBadge" class="loop-status-badge">Playlist en boucle</span>
+                    </div>
+                    <div id="nowPlayingArtist" class="artist">—</div>
+                </div>
+            </div>
+
+            <div class="footer-center">
+                <div class="player-controls">
+                    <button id="shuffleBtn" class="control-btn" onclick="Player.toggleShuffle()"><svg
+                            viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5"
+                            fill="none">
+                            <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+                        </svg></button>
+                    <button class="control-btn" onclick="Player.prevTrack()"><svg viewBox="0 0 24 24" width="20"
+                            height="20" fill="currentColor">
+                            <polygon points="19 20 9 12 19 4 19 20" />
+                            <rect x="5" y="4" width="2" height="16" />
+                        </svg></button>
+                    <button id="playBtn" class="play-pause-btn">
+                        <svg id="playIcon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                            <polygon points="7 4 19 12 7 20 7 4" />
+                        </svg>
+                        <svg id="pauseIcon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"
+                            style="display:none;">
+                            <rect x="6" y="4" width="4" height="16" />
+                            <rect x="14" y="4" width="4" height="16" />
+                        </svg>
+                    </button>
+                    <button class="control-btn" onclick="Player.nextTrack()"><svg viewBox="0 0 24 24" width="20"
+                            height="20" fill="currentColor">
+                            <polygon points="5 4 15 12 5 20 5 4" />
+                            <rect x="17" y="4" width="2" height="16" />
+                        </svg></button>
+                    <button id="repeatBtn" class="control-btn" onclick="Player.toggleRepeat()"><svg viewBox="0 0 24 24"
+                            width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none">
+                            <path d="M17 2l4 4-4 4" />
+                            <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+                            <path d="M7 22l-4-4 4-4" />
+                            <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+                        </svg></button>
+                </div>
+                <div class="progress-container">
+                    <span id="currentTime" class="progress-time left">0:00</span>
+                    <input type="range" id="progressSlider" value="0" step="0.1">
+                    <span id="duration" class="progress-time right">0:00</span>
+                </div>
+            </div>
+
+            <div class="footer-right">
+                <button id="karaokeBtn" class="control-btn" onclick="Karaoke.toggle()" title="Paroles Karaoké (Plein écran)">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                        <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+                        <line x1="12" x2="12" y1="19" y2="22"></line>
+                    </svg>
+                </button>
+                <button class="control-btn" onclick="NowPlayingPanel.togglePanel()"><svg viewBox="0 0 24 24" width="18"
+                        height="18" stroke="currentColor" stroke-width="2" fill="none">
+                        <rect x="2" y="4" width="20" height="16" rx="2" />
+                        <path d="M10 9l5 3-5 3V9z" />
+                    </svg></button>
+                <button id="volumeToggleBtn" class="control-btn" onclick="Music.toggleVolume()" title="Couper le son" aria-pressed="false"><svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor"
+                        stroke-width="2" fill="none">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+                    </svg></button>
+                <input type="range" id="volumeSlider" value="80" style="max-width:100px;">
+            </div>
+        </footer>
+
+        <!-- Mobile Bottom Nav (Spotify Style) -->
+        <nav class="mobile-nav">
+            <button id="mobileHomeBtn" class="nav-item active" onclick="showView('home')">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z"/></svg>
+                <span>Accueil</span>
+            </button>
+            <button id="mobileSearchBtn" class="nav-item" onclick="showView('search')">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                <span>Recherche</span>
+            </button>
+            <button id="mobileLibraryBtn" class="nav-item" onclick="showView('library'); Playlists.renderLikedTracks();">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15z"/></svg>
+                <span>Bibliothèque</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- YouTube Audio Player (hidden) -->
+    <div id="ytPlayerFrame"
+        style="position:fixed;left:-9999px;top:auto;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-10;">
+    </div>
+
+    <input id="localTrackInput" type="file" accept="audio/mpeg,audio/mp4,audio/wav,audio/ogg,audio/flac,.mp3,.m4a,.wav,.ogg,.flac" multiple hidden
+        onchange="Playlists.importLocalTracks(this.files)">
+    <div id="localImportStatus" class="local-import-status"></div>
+
+    <script src="js/auth.js?v=20260406-recovery-fix"></script>
+    <script src="js/video-player.js?v=20260406-recovery-fix"></script>
+    <script src="js/player.js?v=20260608-studio"></script>
+    <script src="js/playlists.js?v=20260608-studio"></script>
+    <script src="js/music.js?v=20260608-studio"></script>
+    <script src="js/onboarding.js?v=20260406-recovery-fix"></script>
+    <script src="js/settings.js?v=20260406-recovery-fix"></script>
+    <script src="js/ux-extras.js?v=20260406-premium"></script>
+
+    <!-- Create Playlist Modal -->
+    <div id="createPlaylistModal" class="modal-overlay" onclick="if(event.target===this)Playlists.closeCreateModal()"
+        style="display:none;">
+        <div class="modal-content" style="max-width:380px;">
+            <button class="modal-close" onclick="Playlists.closeCreateModal()"><svg viewBox="0 0 24 24" width="24"
+                    height="24" stroke="currentColor" stroke-width="2" fill="none">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                </svg></button>
+            <h2 style="font-size:1.4rem;font-weight:800;margin-bottom:20px;color:white;">
+                <svg viewBox="0 0 24 24" width="22" height="22" stroke="var(--accent-bright)" stroke-width="2"
+                    fill="none" style="margin-right:8px;vertical-align:middle;">
+                    <path d="M12 5v14" />
+                    <path d="M5 12h14" />
+                </svg>
+                Nouvelle playlist
+            </h2>
+            <input type="text" id="newPlaylistName" class="neon-input" placeholder="Nom de la playlist..."
+                maxlength="50" onkeydown="if(event.key==='Enter')Playlists.submitCreatePlaylist()"
+                style="margin-bottom:16px;">
+            <button onclick="Playlists.submitCreatePlaylist()" class="btn-glow" style="width:100%;">Créer</button>
+        </div>
+    </div>
+    <div id="settingsModal" class="modal-overlay" onclick="if(event.target === this) Settings.close()">
+        <div class="modal-content">
+            <button class="modal-close" onclick="Settings.close()"><svg viewBox="0 0 24 24" width="24" height="24"
+                    stroke="currentColor" stroke-width="2" fill="none">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                </svg></button>
+            <h2
+                style="font-size:1.4rem;font-weight:800;margin-bottom:24px;color:white;display:flex;align-items:center;gap:10px;">
+                <svg viewBox="0 0 24 24" width="22" height="22" stroke="var(--accent-bright)" stroke-width="2"
+                    fill="none">
+                    <circle cx="12" cy="12" r="3" />
+                    <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg> Profil</h2>
+            <form id="passwordForm" onsubmit="Settings.updatePassword(event)">
+                <div style="margin-bottom:16px;">
+                    <label
+                        style="display:block;font-size:0.72rem;font-weight:700;color:var(--text-secondary);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.05em;">Email</label>
+                    <input type="text" id="settingsEmail" class="neon-input" readonly style="opacity:0.6;">
+                </div>
+            </form>
+            <button onclick="Auth.logout()" class="btn-glow" style="width:100%;margin-top:16px;">Déconnexion</button>
+        </div>
+    </div>
+
+    <div id="musicOnboardingOverlay" class="onboarding-overlay hidden" aria-hidden="true">
+        <div class="onboarding-shell">
+            <div class="onboarding-panel">
+                <div class="onboarding-step-pill">Nouveau profil musical</div>
+                <div class="reveal-wrapper onboarding-title-wrap">
+                    <span id="musicOnboardingTitle" class="reveal-text"></span>
+                </div>
+                <p id="musicOnboardingSubtitle" class="onboarding-subtitle"></p>
+
+                <div id="musicGenresStep" class="onboarding-step">
+                    <div class="onboarding-step-header">
+                        <span class="onboarding-step-label">Choisis 3 styles</span>
+                        <span id="musicGenresCount" class="onboarding-step-count">0/3</span>
+                    </div>
+                    <div id="musicGenresChoices" class="onboarding-chip-grid"></div>
+                </div>
+
+                <div id="musicArtistsStep" class="onboarding-step hidden">
+                    <div class="onboarding-step-header">
+                        <span class="onboarding-step-label">Choisis 3 artistes minimum</span>
+                        <span id="musicArtistsCount" class="onboarding-step-count">0 selectionne</span>
+                    </div>
+                    <div class="onboarding-search-block">
+                        <label class="input-label" for="musicArtistSearch">Recherche artiste</label>
+                        <div class="onboarding-search-input-wrap">
+                            <input type="search" id="musicArtistSearch" class="neon-input onboarding-search-input"
+                                placeholder="Recherche un artiste Spotify..." autocomplete="off">
+                            <span id="musicArtistSearchState" class="onboarding-search-hint">Tape au moins 2
+                                lettres</span>
+                        </div>
+                    </div>
+
+                    <div id="musicSelectedArtistsSection" class="onboarding-subsection hidden">
+                        <div class="onboarding-subsection-title">Ta selection</div>
+                        <div id="musicSelectedArtists" class="artist-circle-grid artist-circle-grid-onboarding"></div>
+                    </div>
+
+                    <div id="musicArtistSearchResultsSection" class="onboarding-subsection hidden">
+                        <div class="onboarding-subsection-title">Resultats de recherche</div>
+                        <div id="musicArtistSearchResults" class="artist-circle-grid artist-circle-grid-onboarding">
+                        </div>
+                    </div>
+
+                    <div class="onboarding-subsection">
+                        <div class="onboarding-subsection-title">Suggestions populaires</div>
+                        <div id="musicArtistsChoices" class="artist-circle-grid artist-circle-grid-onboarding"></div>
+                    </div>
+
+                    <div id="musicRelatedArtistsSection" class="onboarding-subsection hidden">
+                        <div class="onboarding-subsection-title">Artistes similaires</div>
+                        <div id="musicRelatedArtists" class="artist-circle-grid artist-circle-grid-onboarding"></div>
+                    </div>
+                </div>
+
+                <div id="musicOnboardingError" class="onboarding-error" role="alert"></div>
+
+                <div class="onboarding-actions">
+                    <button id="musicOnboardingBack" type="button"
+                        class="onboarding-secondary-btn hidden">Retour</button>
+                    <button id="musicOnboardingNext" type="button" class="btn-glow" disabled>Continuer</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showView(view) {
+            ['home', 'search', 'album', 'library', 'playlist', 'artist'].forEach(v => {
+                const el = document.getElementById(v + 'View');
+                if (el) el.classList.add('hidden');
+            });
+            const target = document.getElementById(view + 'View');
+            if (target) target.classList.remove('hidden');
+
+            // Mobile specific sub-view handling
+            if (view === 'search') {
+                const searchInput = document.getElementById('searchInput');
+                const mobileSearchInput = document.getElementById('mobileSearchInput');
+                const hasQuery = (searchInput && searchInput.value.trim().length >= 2) || 
+                                 (mobileSearchInput && mobileSearchInput.value.trim().length >= 2);
+                
+                const cats = document.getElementById('searchCategories');
+                const resultsRoot = document.getElementById('searchResultsRoot');
+                
+                if (hasQuery) {
+                    if (cats) cats.classList.add('hidden');
+                    if (resultsRoot) resultsRoot.classList.remove('hidden');
+                } else {
+                    if (cats) cats.classList.remove('hidden');
+                    if (resultsRoot) resultsRoot.classList.add('hidden');
+                }
+            }
+
+            // Update mobile nav UI
+            document.querySelectorAll('.mobile-nav .nav-item').forEach(btn => btn.classList.remove('active'));
+            const mobileBtnMap = { 'home': 'mobileHomeBtn', 'search': 'mobileSearchBtn', 'library': 'mobileLibraryBtn' };
+            const activeBtnId = mobileBtnMap[view];
+            if (activeBtnId) {
+                const btn = document.getElementById(activeBtnId);
+                if (btn) btn.classList.add('active');
+            }
+
+            // Library reset on view switch
+            if (view === 'library') {
+                const collections = document.getElementById('libraryCollections');
+                const favorites = document.getElementById('favoriteTracks');
+                if (collections) collections.classList.remove('hidden');
+                if (favorites) favorites.classList.add('hidden');
+                if (typeof Playlists !== 'undefined') Playlists.renderLibraryView();
+            }
+        }
+
+        async function initApp() {
+            const isAuth = await Auth.checkAuth();
+            if (!isAuth) return;
+            const user = Auth.getUser();
+            const badge = document.getElementById('userBadge');
+            if (user && badge) {
+                badge.textContent = user.email[0].toUpperCase();
+            }
+            if (typeof MusicOnboarding !== 'undefined') {
+                MusicOnboarding.init();
+            }
+            await Music.init();
+        }
+
+        document.addEventListener('DOMContentLoaded', initApp);
+
+        const searchInput = document.getElementById('searchInput');
+        let searchTimeout;
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            const q = e.target.value.trim();
+            if (q.length < 2) { showView('home'); return; }
+            searchTimeout = setTimeout(() => {
+                showView('search');
+                Music.search(q);
+            }, 500);
+        });
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                clearTimeout(searchTimeout);
+                const q = e.target.value.trim();
+                if (q.length >= 2) { showView('search'); Music.search(q); }
+            }
+        });
+    </script>
+
+    <!-- ─── Welcome Script ─── -->
+    <script>
+        // Mobile Specific Interactions
+        document.addEventListener('click', (e) => {
+            const searchBarMobile = e.target.closest('.search-bar-mobile');
+            if (searchBarMobile) {
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput) {
+                    searchInput.focus();
+                    // Scroll to top to see search results
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            }
+        });
+    </script>
+    <!-- ═══ Fullscreen Spotify-Style Karaoke Overlay ═══ -->
+    <div id="karaokeOverlay" class="karaoke-overlay" style="display: none;">
+        <div class="karaoke-bg-gradient"></div>
+        <div class="karaoke-bg-glow"></div>
+        
+        <div class="karaoke-header">
+            <div class="karaoke-brand">
+                <img src="nw.png" alt="Logo" class="karaoke-mini-logo">
+                <span>Mode Karaoké</span>
+            </div>
+            <button class="karaoke-close-btn" onclick="Karaoke.close()" title="Fermer le Karaoké">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+
+        <div class="karaoke-content">
+            <div class="karaoke-left">
+                <div class="karaoke-cover-wrapper">
+                    <img id="karaokeCoverImg" src="" alt="Album Cover">
+                </div>
+                <div class="karaoke-track-info">
+                    <h1 id="karaokeTitle" class="karaoke-track-title">Rien en lecture</h1>
+                    <h2 id="karaokeArtist" class="karaoke-track-artist">—</h2>
+                </div>
+                <div class="karaoke-mini-controls">
+                    <button class="karaoke-ctrl-btn" onclick="Player.prevTrack()" title="Précédent">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <polygon points="19 20 9 12 19 4 19 20"/><rect x="5" y="4" width="2" height="16"/>
+                        </svg>
+                    </button>
+                    <button id="karaokePlayBtn" class="karaoke-play-btn" onclick="Player.togglePlay()" title="Lecture / Pause">
+                        <svg id="karaokePlayIcon" viewBox="0 0 24 24" width="22" height="22" fill="black">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                        <svg id="karaokePauseIcon" viewBox="0 0 24 24" width="22" height="22" fill="black" style="display:none;">
+                            <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+                        </svg>
+                    </button>
+                    <button class="karaoke-ctrl-btn" onclick="Player.nextTrack()" title="Suivant">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <polygon points="5 4 15 12 5 20 5 4"/><rect x="17" y="4" width="2" height="16"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="karaoke-right">
+                <div id="karaokeLyricsContent" class="karaoke-lyrics-content">
+                    <div class="lyrics-state">Lance un titre pour afficher les paroles.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Auto-Updater Banner ═══ -->
+    <div id="updaterBanner" class="updater-banner hidden">
+        <div class="updater-icon-container">
+            <svg id="updaterLoadingIcon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" class="rotating-icon">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            <svg id="updaterSuccessIcon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" class="hidden-icon hidden">
+                <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <svg id="updaterErrorIcon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" class="hidden-icon hidden">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+        </div>
+        <div class="updater-text-container">
+            <span class="updater-title">Mise à jour NeonWave</span>
+            <span id="updaterMessage" class="updater-message">Vérification des mises à jour...</span>
+        </div>
+        <div class="updater-actions-container">
+            <button id="updaterBtn" class="updater-btn hidden" onclick="window.NeonWaveDesktop.installUpdate()">Mettre à jour NeonWave</button>
+            <button id="updaterCloseBtn" class="updater-close-btn" onclick="document.getElementById('updaterBanner').classList.add('hidden')" title="Fermer">
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <canvas id="colorCanvas" style="display:none;" width="10" height="10"></canvas>
+</body>
+
+</html>

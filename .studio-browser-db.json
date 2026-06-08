@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "setupCompleted": true,
+  "users": [
+    {
+      "id": "owner-b6c98f47-9cbf-48c6-9967-aa316dfc8a3a",
+      "username": "StudioOwner",
+      "email": "studio-owner@neonwave.local",
+      "password": "$2a$10$k5yjPdQIyfa4ueaXSlKJtu0dZbT1LIUFi7YDgTM6TEvpVKoHsrJQi",
+      "role": "OWNER",
+      "banned": false,
+      "lastIP": "127.0.0.1",
+      "createdAt": "2026-06-08T20:59:47.113Z",
+      "history": [],
+      "favorites": [],
+      "likedTracks": [],
+      "playlists": [
+        {
+          "id": "pl-1780952414394",
+          "name": "Bete interface",
+          "tracks": [
+            {
+              "videoId": "abcdefghijk",
+              "spotifyId": "",
+              "title": "Premier titre",
+              "artist": "NeonWave",
+              "thumb": "",
+              "source": "",
+              "streamUrl": "",
+              "durationMs": 180000,
+              "addedAt": "2026-06-08T21:00:14.401Z"
+            },
+            {
+              "videoId": "bcdefghijkl",
+              "spotifyId": "",
+              "title": "Deuxieme titre",
+              "artist": "NeonWave",
+              "thumb": "",
+              "source": "",
+              "streamUrl": "",
+              "durationMs": 200000,
+              "addedAt": "2026-06-08T21:00:14.407Z"
+            }
+          ],
+          "createdAt": "2026-06-08T21:00:14.394Z",
+          "shareToken": "share-65fbaea4-a736-4580-aa7f-2cdf7c5678cd",
+          "sharedAt": "2026-06-08T21:02:13.480Z"
+        }
+      ],
+      "localTracks": [],
+      "sharedPlaylists": [],
+      "musicOnboardingCompleted": true,
+      "musicPreferences": {
+        "genres": [
+          "Rap",
+          "Drill",
+          "R&B"
+        ],
+        "artists": [
+          {
+            "spotifyId": "2kXKa3aAFngGz2P4GjG5w2",
+            "name": "SCH",
+            "imageUrl": "https://i.scdn.co/image/ab6761610000e5eb4ed985f33e971801dae4e24d",
+            "spotifyUrl": "https://open.spotify.com/artist/2kXKa3aAFngGz2P4GjG5w2",
+            "genres": [],
+            "popularity": 0,
+            "followers": 0,
+            "source": "spotify"
+          },
+          {
+            "spotifyId": "6L34dW6SKMSDaGIfYDU19j",
+            "name": "Maes",
+            "imageUrl": "https://i.scdn.co/image/ab6761610000e5eb94d3aff5f84dfc8bf111f157",
+            "spotifyUrl": "https://open.spotify.com/artist/6L34dW6SKMSDaGIfYDU19j",
+            "genres": [],
+            "popularity": 0,
+            "followers": 0,
+            "source": "spotify"
+          },
+          {
+            "spotifyId": "6Te49r3A6f5BiIgBRxH7FH",
+            "name": "Ninho",
+            "imageUrl": "https://i.scdn.co/image/ab6761610000e5eb7844053470fa0a138eec6662",
+            "spotifyUrl": "https://open.spotify.com/artist/6Te49r3A6f5BiIgBRxH7FH",
+            "genres": [],
+            "popularity": 0,
+            "followers": 0,
+            "source": "spotify"
+          }
+        ]
+      },
+      "followedArtists": [
+        {
+          "spotifyId": "2kXKa3aAFngGz2P4GjG5w2",
+          "name": "SCH",
+          "imageUrl": "https://i.scdn.co/image/ab6761610000e5eb4ed985f33e971801dae4e24d",
+          "spotifyUrl": "https://open.spotify.com/artist/2kXKa3aAFngGz2P4GjG5w2",
+          "genres": [],
+          "popularity": 0,
+          "followers": 0,
+          "source": "spotify"
+        },
+        {
+          "spotifyId": "6L34dW6SKMSDaGIfYDU19j",
+          "name": "Maes",
+          "imageUrl": "https://i.scdn.co/image/ab6761610000e5eb94d3aff5f84dfc8bf111f157",
+          "spotifyUrl": "https://open.spotify.com/artist/6L34dW6SKMSDaGIfYDU19j",
+          "genres": [],
+          "popularity": 0,
+          "followers": 0,
+          "source": "spotify"
+        },
+        {
+          "spotifyId": "6Te49r3A6f5BiIgBRxH7FH",
+          "name": "Ninho",
+          "imageUrl": "https://i.scdn.co/image/ab6761610000e5eb7844053470fa0a138eec6662",
+          "spotifyUrl": "https://open.spotify.com/artist/6Te49r3A6f5BiIgBRxH7FH",
+          "genres": [],
+          "popularity": 0,
+          "followers": 0,
+          "source": "spotify"
+        }
+      ],
+      "musicPreferencesUpdatedAt": "2026-06-08T21:01:19.639Z"
+    }
+  ],
+  "bannedIPs": [],
+  "createdAt": "2026-06-08T20:59:26.261Z"
+}

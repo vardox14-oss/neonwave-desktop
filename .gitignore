@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+node_modules/
+data/
+release/
+dist/
+local-data-backups/
+*.log
+*.tmp
+*.bak
+src/database.local*.json

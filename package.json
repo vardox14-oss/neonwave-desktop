@@ -1,0 +1,83 @@
+{
+  "name": "neonwave-backend",
+  "version": "1.1.0",
+  "description": "NeonWave Music Streaming API",
+  "author": "NeonWave",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --devtools",
+    "server": "node src/server.js",
+    "test": "node --test",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "discord-rpc": "^4.0.1",
+    "dotenv": "^16.4.5",
+    "electron-updater": "^6.8.9",
+    "express": "^4.21.0",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "electron": "^42.3.3",
+    "electron-builder": "^26.15.2",
+    "png-to-ico": "^3.0.1"
+  },
+  "build": {
+    "appId": "app.neonwave.desktop",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "vardox14-oss",
+        "repo": "neonwave-desktop"
+      }
+    ],
+    "productName": "NeonWave",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "build/**/*",
+      "src/**/*",
+      "public/**/*",
+      "!src/database.json",
+      "!src/*.bak",
+      "!src/*.backup.json",
+      "!test/**/*",
+      "!**/*.local*"
+    ],
+    "extraResources": [
+      {
+        "from": ".env.example",
+        "to": ".env.example"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  }
+}

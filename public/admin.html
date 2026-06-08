@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeonWave</title>
+    <link rel="stylesheet" href="css/style.css?v=4.0.1">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:40px;cursor:pointer;"
+                onclick="location.href='/'">
+                <img src="nw.png" alt="NeonWave Logo"
+                    style="width:42px;height:42px;border-radius:12px;object-fit:cover;flex-shrink:0;">
+                <span style="font-size:1.3rem;font-weight:800;letter-spacing:-0.03em;" class="neon-text">Neon<span
+                        style="color:var(--accent-bright)">Wave</span></span>
+            </div>
+
+            <nav style="display:flex;flex-direction:column;gap:4px;flex:1;">
+                <a class="nav-link" href="/">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    </svg>
+                    Retour à l'App
+                </a>
+                <a class="nav-link active" onclick="Admin.showTab('users')" style="cursor:pointer;">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                    Utilisateurs
+                </a>
+                <a class="nav-link" onclick="Admin.showTab('ips')" style="cursor:pointer;">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                    </svg>
+                    IPs Bannies
+                </a>
+            </nav>
+
+            <div style="border-top:1px solid rgba(30,58,95,0.3);padding-top:20px;">
+                <a class="nav-link" onclick="Auth.logout()" style="color:var(--danger);cursor:pointer;">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                        <polyline points="16 17 21 12 16 7" />
+                        <line x1="21" y1="12" x2="9" y2="12" />
+                    </svg>
+                    Déconnexion
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content" style="padding-bottom:40px;">
+            <div style="margin-bottom:40px;" class="animate-fade">
+                <h1 style="font-size:2rem;font-weight:900;letter-spacing:-0.03em;margin-bottom:8px;">⚡ Console
+                    d'Administration</h1>
+                <p style="color:var(--text-secondary);font-size:0.9rem;">Gérez les utilisateurs et la sécurité de
+                    NeonWave.</p>
+            </div>
+
+            <!-- Stats Row -->
+            <div id="statsRow" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:40px;"
+                class="animate-fade">
+                <div class="glass" style="padding:24px;border-radius:16px;">
+                    <div
+                        style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:8px;">
+                        Total Utilisateurs</div>
+                    <div id="statTotal" style="font-size:2rem;font-weight:900;color:var(--accent-bright);">—</div>
+                </div>
+                <div class="glass" style="padding:24px;border-radius:16px;">
+                    <div
+                        style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:8px;">
+                        Admins</div>
+                    <div id="statAdmins" style="font-size:2rem;font-weight:900;color:var(--success);">—</div>
+                </div>
+                <div class="glass" style="padding:24px;border-radius:16px;">
+                    <div
+                        style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:8px;">
+                        Bannis</div>
+                    <div id="statBanned" style="font-size:2rem;font-weight:900;color:var(--danger);">—</div>
+                </div>
+                <div class="glass" style="padding:24px;border-radius:16px;">
+                    <div
+                        style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:8px;">
+                        IPs Bannies</div>
+                    <div id="statIPBans" style="font-size:2rem;font-weight:900;color:#f59e0b;">—</div>
+                </div>
+            </div>
+
+            <!-- ═══ Users Tab ═══ -->
+            <div id="tabUsers">
+                <!-- Users Table -->
+                <div class="glass-strong" style="border-radius:20px;overflow:hidden;">
+                    <div style="padding:24px 24px 0;">
+                        <h2 style="font-size:1.2rem;font-weight:800;display:flex;align-items:center;gap:10px;">
+                            <span
+                                style="width:32px;height:32px;border-radius:8px;background:rgba(46,107,214,0.15);display:flex;align-items:center;justify-content:center;">
+                                <svg viewBox="0 0 24 24" width="16" height="16" stroke="var(--accent-bright)"
+                                    stroke-width="2.5" fill="none">
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                </svg>
+                            </span>
+                            Liste des Comptes
+                        </h2>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Utilisateur</th>
+                                    <th>Rôle</th>
+                                    <th>Dernière IP</th>
+                                    <th>Statut</th>
+                                    <th style="text-align:right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="userTableBody">
+                                <tr>
+                                    <td colspan="5" style="text-align:center;padding:48px;color:var(--text-muted);">
+                                        Chargement...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ IPs Tab ═══ -->
+            <div id="tabIPs" style="display:none;">
+                <!-- Add IP Form -->
+                <div class="glass-strong" style="border-radius:20px;padding:32px;margin-bottom:24px;">
+                    <h2
+                        style="font-size:1.2rem;font-weight:800;margin-bottom:24px;display:flex;align-items:center;gap:10px;">
+                        <span
+                            style="width:32px;height:32px;border-radius:8px;background:rgba(239,68,68,0.15);display:flex;align-items:center;justify-content:center;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="var(--danger)" stroke-width="2.5"
+                                fill="none">
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            </svg>
+                        </span>
+                        Bannir une adresse IP
+                    </h2>
+                    <form onsubmit="Admin.banIPForm(event)" style="display:flex;gap:12px;align-items:end;">
+                        <div style="flex:1;">
+                            <label
+                                style="display:block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);margin-bottom:8px;">Adresse
+                                IP</label>
+                            <input type="text" id="banIPInput" required class="neon-input" placeholder="192.168.1.1"
+                                pattern="[0-9a-fA-F.:]+">
+                        </div>
+                        <button type="submit"
+                            style="padding:14px 28px;border:none;border-radius:12px;background:linear-gradient(135deg,#ef4444,#dc2626);color:white;font-weight:700;font-size:0.85rem;cursor:pointer;transition:all 0.2s;font-family:inherit;white-space:nowrap;"
+                            onmouseover="this.style.transform='translateY(-1px)'"
+                            onmouseout="this.style.transform='none'">
+                            Bannir IP
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Banned IPs Table -->
+                <div class="glass-strong" style="border-radius:20px;overflow:hidden;">
+                    <div style="padding:24px 24px 0;">
+                        <h2 style="font-size:1.2rem;font-weight:800;display:flex;align-items:center;gap:10px;">
+                            <span
+                                style="width:32px;height:32px;border-radius:8px;background:rgba(245,158,11,0.15);display:flex;align-items:center;justify-content:center;">
+                                <svg viewBox="0 0 24 24" width="16" height="16" stroke="#f59e0b" stroke-width="2.5"
+                                    fill="none">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                                </svg>
+                            </span>
+                            IPs Bannies
+                        </h2>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Adresse IP</th>
+                                    <th style="text-align:right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ipTableBody">
+                                <tr>
+                                    <td colspan="2" style="text-align:center;padding:48px;color:var(--text-muted);">
+                                        Chargement...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script src="js/auth.js"></script>
+    <script src="js/admin.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const isAuth = await Auth.checkAuth();
+            if (!isAuth) return;
+            const user = Auth.getUser();
+            if (user?.role !== 'OWNER' && user?.role !== 'ADMIN') {
+                alert("Accès refusé. Réservé aux administrateurs.");
+                window.location.href = '/';
+                return;
+            }
+            Admin.init();
+        });
+    </script>
+</body>
+
+</html>
