@@ -90,7 +90,7 @@ const Auth = {
         } catch (err) {
             localStorage.removeItem('user');
             localStorage.removeItem('token');
-            if (!window.location.pathname.includes('login.html')) {
+            if (!window.location.pathname.includes('login')) {
                 window.location.href = 'login.html';
             }
             return false;
@@ -128,6 +128,6 @@ const NW = {
 window.NW = NW;
 
 // Auto-check auth on script load
-if (!window.location.pathname.includes('login.html')) {
+if (!window.location.pathname.includes('login')) {
     Auth.checkAuth();
 }
