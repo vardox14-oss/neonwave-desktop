@@ -212,6 +212,7 @@ app.post('/setup/owner', async (c) => {
         const secret = c.env.JWT_SECRET || JWT_SECRET;
         const token = await sign({ id: owner.id, email: owner.email, role: owner.role }, secret);
         setCookie(c, 'token', token, {
+            path: '/',
             httpOnly: true,
             secure: true,
             sameSite: 'Lax',
@@ -268,6 +269,7 @@ app.post('/auth/register', async (c) => {
     const secret = c.env.JWT_SECRET || JWT_SECRET;
     const token = await sign({ id: user.id, email: user.email, role: user.role }, secret);
     setCookie(c, 'token', token, {
+        path: '/',
         httpOnly: true,
         secure: true,
         sameSite: 'Lax',
@@ -311,6 +313,7 @@ app.post('/auth/login', async (c) => {
     const token = await sign({ id: user.id, email: user.email, role: user.role }, secret);
 
     setCookie(c, 'token', token, {
+        path: '/',
         httpOnly: true,
         secure: true,
         sameSite: 'Lax',
