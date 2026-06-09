@@ -61,6 +61,8 @@ test('first run setup creates the owner account before normal auth opens', async
             ...process.env,
             PORT: String(port),
             JWT_SECRET: 'integration-test-secret',
+            SPOTIFY_CLIENT_ID: '',
+            SPOTIFY_CLIENT_SECRET: '',
             NEONWAVE_DB_PATH: databasePath
         },
         stdio: ['ignore', 'pipe', 'pipe']
@@ -148,6 +150,17 @@ test('authentication and password storage work end to end', async () => {
     const baseUrl = `http://127.0.0.1:${port}`;
     const ownerPassword = 'LegacyOwner123!';
     const output = [];
+    const currentWeekStart = new Date();
+    currentWeekStart.setHours(0, 0, 0, 0);
+    currentWeekStart.setDate(currentWeekStart.getDate() - ((currentWeekStart.getDay() + 6) % 7));
+    const previousWeekStart = new Date(currentWeekStart);
+    previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+    const recapPlayDate = (day, hour) => {
+        const date = new Date(previousWeekStart);
+        date.setDate(date.getDate() + day);
+        date.setHours(hour, 0, 0, 0);
+        return date.toISOString();
+    };
 
     fs.writeFileSync(databasePath, JSON.stringify({
         users: [{
@@ -159,7 +172,40 @@ test('authentication and password storage work end to end', async () => {
             banned: false,
             lastIP: '',
             createdAt: new Date().toISOString(),
-            history: [],
+            history: [
+                {
+                    videoId: 'maes-track-one',
+                    title: 'Distant',
+                    artist: 'Maes',
+                    thumb: 'https://example.test/maes.jpg',
+                    durationMs: 180000,
+                    playedAt: recapPlayDate(1, 10)
+                },
+                {
+                    videoId: 'maes-track-two',
+                    title: 'Magie',
+                    artist: 'Maes',
+                    thumb: 'https://example.test/maes.jpg',
+                    durationMs: 240000,
+                    playedAt: recapPlayDate(3, 16)
+                },
+                {
+                    videoId: 'maes-track-one',
+                    title: 'Distant',
+                    artist: 'Maes',
+                    thumb: 'https://example.test/maes.jpg',
+                    durationMs: 180000,
+                    playedAt: recapPlayDate(5, 20)
+                },
+                {
+                    videoId: 'booba-track-one',
+                    title: 'DKR',
+                    artist: 'Booba',
+                    thumb: 'https://example.test/booba.jpg',
+                    durationMs: 120000,
+                    playedAt: recapPlayDate(6, 14)
+                }
+            ],
             favorites: [],
             likedTracks: [],
             playlists: []
@@ -173,6 +219,8 @@ test('authentication and password storage work end to end', async () => {
             ...process.env,
             PORT: String(port),
             JWT_SECRET: 'integration-test-secret',
+            SPOTIFY_CLIENT_ID: '',
+            SPOTIFY_CLIENT_SECRET: '',
             NEONWAVE_DB_PATH: databasePath
         },
         stdio: ['ignore', 'pipe', 'pipe']
@@ -193,6 +241,21 @@ test('authentication and password storage work end to end', async () => {
         });
         assert.equal(ownerLogin.response.status, 200);
         assert.ok(ownerLogin.body.token);
+
+        const weeklyRecap = await requestJson(baseUrl, '/api/user/weekly-recap', {
+            headers: {
+                authorization: `Bearer ${ownerLogin.body.token}`
+            }
+        });
+        assert.equal(weeklyRecap.response.status, 200);
+        assert.equal(weeklyRecap.body.hasData, true);
+        assert.equal(weeklyRecap.body.totalPlays, 4);
+        assert.equal(weeklyRecap.body.totalMinutes, 12);
+        assert.equal(weeklyRecap.body.topArtist.name, 'Maes');
+        assert.equal(weeklyRecap.body.topArtist.plays, 3);
+        assert.match(weeklyRecap.body.topArtist.thumb, /^https:\/\/cdn-images\.dzcdn\.net\/images\/artist\//);
+        assert.equal(weeklyRecap.body.topTrack.title, 'Distant');
+        assert.equal(weeklyRecap.body.topTrack.plays, 2);
 
         const migratedDb = JSON.parse(fs.readFileSync(databasePath, 'utf8'));
         assert.match(migratedDb.users[0].password, /^\$2[aby]\$/);
@@ -347,6 +410,8 @@ test('local tracks and playlist management work end to end', async () => {
             ...process.env,
             PORT: String(port),
             JWT_SECRET: 'integration-test-secret',
+            SPOTIFY_CLIENT_ID: '',
+            SPOTIFY_CLIENT_SECRET: '',
             NEONWAVE_DB_PATH: databasePath
         },
         stdio: ['ignore', 'pipe', 'pipe']

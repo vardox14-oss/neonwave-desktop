@@ -12,9 +12,13 @@ const Music = {
     artistReturnView: 'home',
     artistDiscographyFilter: 'popular',
     albumReturnView: 'search',
+    weeklyRecap: null,
+    weeklyRecapModalData: null,
+    weeklyRecapRevealed: false,
     _searchRequestToken: 0,
     _contexts: {},
     _artistHomeBound: false,
+    _weeklyRecapEventsBound: false,
 
     async init() {
         this.normalizeStaticCopy();
@@ -33,7 +37,9 @@ const Music = {
         this.bindArtistHomeEvents();
         this.bindSearchFilters();
         this.bindMobileSearch();
+        this.bindWeeklyRecapEvents();
         await this.loadHomeFeed();
+        await this.loadWeeklyRecap();
     },
 
     normalizeStaticCopy() {
@@ -164,6 +170,284 @@ const Music = {
         if (typeof MusicOnboarding !== 'undefined') {
             await MusicOnboarding.open();
         }
+    },
+
+    async loadWeeklyRecap() {
+        try {
+            const response = await fetch('/api/user/weekly-recap', {
+                headers: Auth.getAuthHeaders()
+            });
+            const recap = await response.json();
+            if (!response.ok) {
+                throw new Error(recap.error || 'Bilan hebdomadaire indisponible.');
+            }
+
+            this.weeklyRecap = recap;
+            this.renderWeeklyRecapCard();
+            this.maybeAutoOpenWeeklyRecap();
+        } catch (error) {
+            console.warn('Weekly recap error:', error);
+        }
+    },
+
+    bindWeeklyRecapEvents() {
+        if (this._weeklyRecapEventsBound) return;
+
+        document.addEventListener('keydown', (event) => {
+            const modal = document.getElementById('weeklyRecapModal');
+            if (event.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+                this.closeWeeklyRecap();
+            }
+        });
+        this._weeklyRecapEventsBound = true;
+    },
+
+    renderWeeklyRecapCard() {
+        const section = document.getElementById('weeklyRecapSection');
+        const meta = document.getElementById('weeklyRecapCardMeta');
+        if (!section || !meta) return;
+
+        if (!this.weeklyRecap?.hasData) {
+            section.classList.add('hidden');
+            return;
+        }
+
+        section.classList.remove('hidden');
+        meta.textContent = `${this.weeklyRecap.week?.label || 'La semaine dernière'} · Ton classement attend d'être découvert.`;
+    },
+
+    maybeAutoOpenWeeklyRecap() {
+        const recap = this.weeklyRecap;
+        if (!recap?.hasData || !recap.week?.id) return;
+
+        const storageKey = 'nw_weekly_recap_prompted';
+        try {
+            if (localStorage.getItem(storageKey) === recap.week.id) return;
+            localStorage.setItem(storageKey, recap.week.id);
+        } catch {}
+
+        setTimeout(() => {
+            const onboardingModal = document.getElementById('onboardingModal');
+            const onboardingOpen = onboardingModal && !onboardingModal.classList.contains('hidden');
+            if (this.getActiveView() === 'home' && !onboardingOpen) this.openWeeklyRecap();
+        }, 1400);
+    },
+
+    openWeeklyRecap(options = {}) {
+        const modal = document.getElementById('weeklyRecapModal');
+        const useDemo = Boolean(options?.demo);
+        const recap = useDemo ? this.getWeeklyRecapDemoData() : this.weeklyRecap;
+
+        if (!modal || !recap?.hasData) {
+            if (typeof Playlists !== 'undefined' && Playlists.showToast) {
+                Playlists.showToast('Ton bilan se construit encore. Écoute quelques titres et reviens plus tard.');
+            }
+            return;
+        }
+
+        this.weeklyRecapModalData = recap;
+        this.weeklyRecapRevealed = false;
+        this.renderWeeklyRecapModal();
+        modal.classList.remove('hidden');
+        document.body.classList.add('weekly-recap-open');
+    },
+
+    closeWeeklyRecap() {
+        document.getElementById('weeklyRecapModal')?.classList.add('hidden');
+        document.body.classList.remove('weekly-recap-open');
+        this.weeklyRecapModalData = null;
+    },
+
+    revealWeeklyRecap() {
+        this.weeklyRecapRevealed = true;
+        this.renderWeeklyRecapModal();
+        this.launchWeeklyRecapParticles();
+    },
+
+    launchWeeklyRecapParticles() {
+        const dialog = document.getElementById('weeklyRecapDialog');
+        if (!dialog) return;
+
+        dialog.querySelectorAll('.weekly-recap-particle').forEach((node) => node.remove());
+        for (let index = 0; index < 18; index += 1) {
+            const particle = document.createElement('span');
+            particle.className = 'weekly-recap-particle';
+            particle.style.setProperty('--particle-x', `${Math.round((Math.random() - 0.5) * 520)}px`);
+            particle.style.setProperty('--particle-y', `${Math.round(-90 - Math.random() * 360)}px`);
+            particle.style.setProperty('--particle-delay', `${Math.random() * 0.18}s`);
+            particle.style.setProperty('--particle-color', index % 3 === 0 ? '#a777ff' : index % 2 === 0 ? '#73b7ff' : '#f7f9ff');
+            dialog.appendChild(particle);
+            setTimeout(() => particle.remove(), 1500);
+        }
+    },
+
+    handleRecapImageError(image) {
+        if (!image || image.dataset.fallbackApplied === 'true') return;
+        image.dataset.fallbackApplied = 'true';
+        image.src = 'nw.png';
+        image.classList.add('recap-fallback-logo');
+    },
+
+    getWeeklyRecapDemoData() {
+        const formatDate = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
+        const currentMonday = new Date();
+        currentMonday.setHours(0, 0, 0, 0);
+        currentMonday.setDate(currentMonday.getDate() - ((currentMonday.getDay() + 6) % 7));
+        const previousMonday = new Date(currentMonday);
+        previousMonday.setDate(previousMonday.getDate() - 7);
+        const previousSunday = new Date(currentMonday);
+        previousSunday.setDate(previousSunday.getDate() - 1);
+
+        return {
+            isDemo: true,
+            week: {
+                id: 'demo-weekly-recap',
+                startsAt: previousMonday.toISOString(),
+                endsAt: currentMonday.toISOString(),
+                label: `${formatDate.format(previousMonday)} - ${formatDate.format(previousSunday)}`
+            },
+            hasData: true,
+            totalPlays: 78,
+            totalMinutes: 326,
+            topArtist: {
+                rank: 1,
+                name: 'Maes',
+                thumb: 'https://cdn-images.dzcdn.net/images/artist/14c919011b4dc5575aa64bcf7311aa5d/1000x1000-000000-80-0-0.jpg',
+                plays: 42,
+                minutes: 184
+            },
+            topTrack: {
+                rank: 1,
+                title: 'Distant',
+                artist: 'Maes, Ninho',
+                thumb: 'https://cdn-images.dzcdn.net/images/cover/b0122ae8efd3951902e1f01673a4f219/1000x1000-000000-80-0-0.jpg',
+                plays: 14,
+                minutes: 46
+            },
+            artists: [
+                { rank: 1, name: 'Maes', thumb: 'https://cdn-images.dzcdn.net/images/artist/14c919011b4dc5575aa64bcf7311aa5d/1000x1000-000000-80-0-0.jpg', plays: 42, minutes: 184 },
+                { rank: 2, name: 'Ninho', thumb: 'https://cdn-images.dzcdn.net/images/artist/7601c5c0e2bd16cb585898316fd0dfec/1000x1000-000000-80-0-0.jpg', plays: 18, minutes: 62 },
+                { rank: 3, name: 'Saïf', thumb: 'https://cdn-images.dzcdn.net/images/artist/ce23fc0a3302d65712df2dcfeef5467e/1000x1000-000000-80-0-0.jpg', plays: 9, minutes: 38 },
+                { rank: 4, name: 'Pato', thumb: 'https://cdn-images.dzcdn.net/images/artist/28e12b8806d4baa0c3affc8e28a0809e/1000x1000-000000-80-0-0.jpg', plays: 6, minutes: 27 },
+                { rank: 5, name: 'Booba', thumb: 'https://cdn-images.dzcdn.net/images/artist/38b687e97c6874e744d305ef2ca8d0d0/1000x1000-000000-80-0-0.jpg', plays: 3, minutes: 15 }
+            ],
+            tracks: [
+                { rank: 1, title: 'Distant', artist: 'Maes, Ninho', thumb: 'https://cdn-images.dzcdn.net/images/cover/b0122ae8efd3951902e1f01673a4f219/1000x1000-000000-80-0-0.jpg', plays: 14, minutes: 46 },
+                { rank: 2, title: 'MAGIE', artist: 'Maes', thumb: 'https://cdn-images.dzcdn.net/images/cover/33546e8c7b544a4a20d6592af1f4ad56/1000x1000-000000-80-0-0.jpg', plays: 11, minutes: 39 },
+                { rank: 3, title: 'Malade', artist: 'Saïf', thumb: 'https://cdn-images.dzcdn.net/images/cover/381aa7c422a31eec0ada5698c552c57a/1000x1000-000000-80-0-0.jpg', plays: 8, minutes: 25 }
+            ]
+        };
+    },
+
+    renderWeeklyRecapModal() {
+        const container = document.getElementById('weeklyRecapContent');
+        const recap = this.weeklyRecapModalData || this.weeklyRecap;
+        if (!container || !recap?.hasData) return;
+
+        if (!this.weeklyRecapRevealed) {
+            container.innerHTML = `
+                <section class="weekly-recap-intro">
+                    <div class="weekly-recap-lock-mark">
+                        <img src="nw.png" alt="NW" class="recap-lock-logo">
+                    </div>
+                    <span class="weekly-recap-kicker">${recap.isDemo ? 'Mode test' : 'Bilan'} · ${this.escapeHtml(recap.week?.label || 'La semaine dernière')}</span>
+                    <h2>Cette semaine a eu un visage.</h2>
+                    <p>Un artiste a pris plus de place que les autres. Ton classement est prêt, mais il ne se dévoile qu'une fois.</p>
+                    <button type="button" class="weekly-recap-reveal-btn" onclick="Music.revealWeeklyRecap()">
+                        Découvrir mon numéro un
+                    </button>
+                </section>
+            `;
+            return;
+        }
+
+        const topArtist = recap.topArtist || {};
+        const topTrack = recap.topTrack || {};
+        const artistRows = (recap.artists || []).slice(0, 5).map((artist) => `
+            <button
+                type="button"
+                class="weekly-recap-rank-row"
+                data-artist="${this.escapeHtml(artist.name || '')}"
+                onclick="Music.closeWeeklyRecap(); Music.openArtistProfile(this.getAttribute('data-artist'))"
+            >
+                <span class="weekly-recap-rank">${artist.rank}</span>
+                <span class="weekly-recap-rank-thumb">
+                    ${artist.thumb ? `<img src="${this.escapeHtml(artist.thumb)}" alt="" loading="lazy" onerror="Music.handleRecapImageError(this)">` : '<img src="nw.png" alt="NW" class="recap-fallback-logo">'}
+                </span>
+                <span class="weekly-recap-rank-copy">
+                    <strong>${this.escapeHtml(artist.name || 'Artiste inconnu')}</strong>
+                    <small>${artist.minutes || 0} min · ${artist.plays || 0} écoute${artist.plays === 1 ? '' : 's'}</small>
+                </span>
+            </button>
+        `).join('');
+
+        const trackRows = (recap.tracks || []).slice(0, 3).map((track) => `
+            <div class="weekly-recap-track-row">
+                <span class="weekly-recap-rank">${track.rank}</span>
+                <span class="weekly-recap-rank-thumb">
+                    ${track.thumb ? `<img src="${this.escapeHtml(track.thumb)}" alt="" loading="lazy" onerror="Music.handleRecapImageError(this)">` : '<img src="nw.png" alt="NW" class="recap-fallback-logo">'}
+                </span>
+                <span class="weekly-recap-rank-copy">
+                    <strong>${this.escapeHtml(track.title || 'Sans titre')}</strong>
+                    <small>${this.escapeHtml(track.artist || 'Artiste inconnu')} · ${track.plays || 0} lecture${track.plays === 1 ? '' : 's'}</small>
+                </span>
+            </div>
+        `).join('');
+
+        container.innerHTML = `
+            <section class="weekly-recap-results">
+                <div class="weekly-recap-hero">
+                    <div class="weekly-recap-hero-glow"></div>
+                    <div class="weekly-recap-hero-art">
+                        ${topArtist.thumb
+                            ? `<img src="${this.escapeHtml(topArtist.thumb)}" alt="${this.escapeHtml(topArtist.name || '')}" onerror="Music.handleRecapImageError(this)">`
+                            : '<img src="nw.png" alt="NW" class="recap-fallback-logo">'}
+                    </div>
+                    <div class="weekly-recap-hero-copy">
+                        <span class="weekly-recap-kicker">${recap.isDemo ? 'Test artiste de la semaine' : 'Ton artiste de la semaine'}</span>
+                        <div class="weekly-recap-number">01</div>
+                        <h2>${this.escapeHtml(topArtist.name || 'Artiste inconnu')}</h2>
+                        <p>${topArtist.minutes || 0} minutes estimées · ${topArtist.plays || 0} écoute${topArtist.plays === 1 ? '' : 's'}</p>
+                        <button
+                            type="button"
+                            class="weekly-recap-profile-btn"
+                            data-artist="${this.escapeHtml(topArtist.name || '')}"
+                            onclick="Music.closeWeeklyRecap(); Music.openArtistProfile(this.getAttribute('data-artist'))"
+                        >
+                            Voir le profil artiste
+                        </button>
+                    </div>
+                </div>
+
+                <div class="weekly-recap-stat-grid">
+                    <div><strong>${recap.totalMinutes || 0}</strong><span>minutes estimées</span></div>
+                    <div><strong>${recap.totalPlays || 0}</strong><span>titres lancés</span></div>
+                    <div><strong>${recap.artists?.length || 0}</strong><span>artistes dans ton top</span></div>
+                </div>
+
+                <div class="weekly-recap-highlight">
+                    <span class="weekly-recap-highlight-cover">
+                        ${topTrack.thumb
+                            ? `<img src="${this.escapeHtml(topTrack.thumb)}" alt="${this.escapeHtml(topTrack.title || '')}" onerror="Music.handleRecapImageError(this)">`
+                            : '<img src="nw.png" alt="NW" class="recap-fallback-logo">'}
+                    </span>
+                    <span>Ton titre numéro un</span>
+                    <strong>${this.escapeHtml(topTrack.title || 'Sans titre')}</strong>
+                    <small>${this.escapeHtml(topTrack.artist || 'Artiste inconnu')} · ${topTrack.plays || 0} lecture${topTrack.plays === 1 ? '' : 's'}</small>
+                </div>
+
+                <div class="weekly-recap-columns">
+                    <section>
+                        <h3>Ton top artistes</h3>
+                        <div class="weekly-recap-list">${artistRows}</div>
+                    </section>
+                    <section>
+                        <h3>Titres en boucle</h3>
+                        <div class="weekly-recap-list">${trackRows}</div>
+                    </section>
+                </div>
+            </section>
+        `;
     },
 
     async startRadio(track) {
@@ -440,21 +724,23 @@ const Music = {
         if (!album) return;
 
         const normalizedAlbum = {
-            spotifyId: (album.spotifyId || album.id || '').trim(),
+            spotifyId: (album.spotifyId || '').trim(),
+            deezerId: (album.deezerId || '').trim(),
             name: (album.name || 'Album').trim() || 'Album',
             imageUrl: (album.imageUrl || album.image || '').trim(),
             artists: Array.isArray(album.artists) ? album.artists.filter(Boolean) : [],
             releaseDate: (album.releaseDate || '').trim(),
-            totalTracks: Number.isFinite(album.totalTracks) ? album.totalTracks : (Array.isArray(album.tracks) ? album.tracks.length : 0)
+            totalTracks: Number.isFinite(album.totalTracks) ? album.totalTracks : (Array.isArray(album.tracks) ? album.tracks.length : 0),
+            source: (album.source || '').trim()
         };
 
-        const identity = normalizedAlbum.spotifyId || `${normalizedAlbum.name}:${normalizedAlbum.artists.join(',')}`.toLowerCase();
+        const identity = normalizedAlbum.spotifyId || normalizedAlbum.deezerId || `${normalizedAlbum.name}:${normalizedAlbum.artists.join(',')}`.toLowerCase();
         if (!identity) return;
 
         this.recentAlbums = [
             normalizedAlbum,
             ...this.recentAlbums.filter((item) => {
-                const itemIdentity = item.spotifyId || `${item.name}:${(item.artists || []).join(',')}`.toLowerCase();
+                const itemIdentity = item.spotifyId || item.deezerId || `${item.name}:${(item.artists || []).join(',')}`.toLowerCase();
                 return itemIdentity !== identity;
             })
         ].slice(0, 6);
@@ -1354,9 +1640,10 @@ const Music = {
         const releaseDate = this.escapeHtml(options.metaOverride || album.releaseDate || 'Date inconnue');
         const totalTracks = Number.isFinite(album.totalTracks) && album.totalTracks > 0 ? `${album.totalTracks} titres` : 'Album';
         const albumQuery = encodeURIComponent(`${(album.artists || [album.name])[0] || album.name} ${album.name}`);
+        const deezerId = String(album.deezerId || '').trim();
         const clickAction = album.spotifyId
             ? `Music.openAlbum('${album.spotifyId}')`
-            : `Music.openAlbumSearch('${albumQuery}')`;
+            : (deezerId ? `Music.openDeezerAlbum('${this.escapeHtml(deezerId)}')` : `Music.openAlbumSearch('${albumQuery}')`);
 
         return `
             <article class="album-card animate-fade" style="animation-delay:${index * 0.04}s" onclick="${clickAction}">
@@ -1412,6 +1699,19 @@ const Music = {
         return data.item || null;
     },
 
+    async fetchDeezerAlbumDetails(deezerId) {
+        const response = await fetch(`/api/deezer/albums/${encodeURIComponent(deezerId)}`, {
+            headers: Auth.getAuthHeaders()
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Impossible de charger cet album.');
+        }
+
+        this.spotifyEnabled = Boolean(data.spotifyEnabled);
+        return data.item || null;
+    },
+
     async openAlbum(spotifyId) {
         const albumViewContent = document.getElementById('albumViewContent');
         if (!spotifyId || !albumViewContent) return;
@@ -1427,6 +1727,38 @@ const Music = {
 
         try {
             const album = await this.fetchAlbumDetails(spotifyId);
+            this.currentAlbum = album;
+            this.rememberAlbum(album);
+            if (!(typeof Player !== 'undefined' && Player.currentTrack?.thumb)) {
+                this.setAmbientArtwork(album?.imageUrl || '');
+            }
+            this.renderAlbumView(album);
+        } catch (error) {
+            albumViewContent.innerHTML = `
+                <div class="album-detail-shell">
+                    <div style="padding:48px;text-align:center;color:var(--danger);font-weight:600;">
+                        ${this.escapeHtml(error.message || 'Impossible de charger cet album.')}
+                    </div>
+                </div>
+            `;
+        }
+    },
+
+    async openDeezerAlbum(deezerId) {
+        const albumViewContent = document.getElementById('albumViewContent');
+        if (!deezerId || !albumViewContent) return;
+
+        const activeView = this.getActiveView();
+        this.albumReturnView = activeView === 'album' ? (this.albumReturnView || 'search') : activeView;
+        this.currentAlbum = null;
+        albumViewContent.innerHTML = this.albumDetailSkeleton();
+
+        if (typeof showView === 'function') {
+            showView('album');
+        }
+
+        try {
+            const album = await this.fetchDeezerAlbumDetails(deezerId);
             this.currentAlbum = album;
             this.rememberAlbum(album);
             if (!(typeof Player !== 'undefined' && Player.currentTrack?.thumb)) {

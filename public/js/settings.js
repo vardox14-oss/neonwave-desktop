@@ -14,6 +14,13 @@ const Settings = {
         document.getElementById('passwordForm').reset();
     },
 
+    openWeeklyRecapTest() {
+        this.close();
+        if (typeof Music !== 'undefined' && Music.openWeeklyRecap) {
+            Music.openWeeklyRecap({ demo: true });
+        }
+    },
+
     async updatePassword(e) {
         e.preventDefault();
         const password = document.getElementById('newPassword').value;

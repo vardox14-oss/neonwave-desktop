@@ -252,21 +252,21 @@ const getClientIP = (req) => {
 
 const authenticate = (req, res, next) => {
     const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
-    
+
     if (!token) return res.status(401).json({ error: 'Auth requis' });
-    
+
     try {
         req.user = jwt.verify(token, JWT_SECRET);
         const db = getDB();
         const user = db.users.find(u => u.id === req.user.id);
         if (user && user.banned) return res.status(403).json({ error: 'Votre compte a été banni.' });
-        
+
         const clientIP = getClientIP(req);
         if (db.bannedIPs.includes(clientIP)) return res.status(403).json({ error: 'Votre adresse IP a été bannie.' });
-        
+
         next();
-    } catch { 
-        res.status(401).json({ error: 'Session invalide ou expirée' }); 
+    } catch {
+        res.status(401).json({ error: 'Session invalide ou expirée' });
     }
 };
 
@@ -349,6 +349,172 @@ const trackUserHistory = (userId, track) => {
         })
     ].slice(0, 20);
     saveDB(db);
+};
+
+const WEEKLY_RECAP_DEFAULT_DURATION_MS = 180000;
+
+const getWeekStart = (value = new Date()) => {
+    const date = new Date(value);
+    date.setHours(0, 0, 0, 0);
+    const daysSinceMonday = (date.getDay() + 6) % 7;
+    date.setDate(date.getDate() - daysSinceMonday);
+    return date;
+};
+
+const getWeeklyRecapPeriod = (value = new Date()) => {
+    const endsAt = getWeekStart(value);
+    const startsAt = new Date(endsAt);
+    startsAt.setDate(startsAt.getDate() - 7);
+    const localDateId = [
+        startsAt.getFullYear(),
+        String(startsAt.getMonth() + 1).padStart(2, '0'),
+        String(startsAt.getDate()).padStart(2, '0')
+    ].join('-');
+
+    return {
+        id: localDateId,
+        startsAt,
+        endsAt
+    };
+};
+
+const splitTrackArtists = (value) => String(value || '')
+    .split(/\s*(?:,|&|\bx\b|\bfeat\.?\b|\bft\.?\b)\s*/i)
+    .map(normalizeChoiceValue)
+    .filter(Boolean)
+    .slice(0, 5);
+
+const getWeeklyRecapDurationMs = (entry) => {
+    const durationMs = Number(entry?.durationMs);
+    if (Number.isFinite(durationMs) && durationMs > 0) {
+        return Math.min(durationMs, 15 * 60 * 1000);
+    }
+    return WEEKLY_RECAP_DEFAULT_DURATION_MS;
+};
+
+const buildWeeklyRecap = (history = [], now = new Date()) => {
+    const period = getWeeklyRecapPeriod(now);
+    let uniquePlays = [];
+    const seen = new Set();
+
+    const addEntry = (entry) => {
+        const playedAt = new Date(entry?.playedAt || 0);
+        const identity = normalizeChoiceValue(
+            entry?.spotifyId
+            || entry?.videoId
+            || `${entry?.title || ''}:${entry?.artist || ''}`
+        ).toLowerCase();
+        const timeBucket = Math.round(playedAt.getTime() / 5000);
+        const dedupeKey = `${identity}:${timeBucket}`;
+        if (!identity || seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
+        uniquePlays.push(entry);
+    };
+
+    (Array.isArray(history) ? history : []).forEach((entry) => {
+        const playedAt = new Date(entry?.playedAt || 0);
+        if (
+            Number.isNaN(playedAt.getTime())
+            || playedAt < period.startsAt
+            || playedAt >= period.endsAt
+        ) {
+            return;
+        }
+        addEntry(entry);
+    });
+
+    let isFallback = false;
+    if (uniquePlays.length === 0 && history.length > 0) {
+        seen.clear();
+        (Array.isArray(history) ? history : []).forEach((entry) => {
+            addEntry(entry);
+        });
+        isFallback = true;
+    }
+
+
+    const artists = new Map();
+    const tracks = new Map();
+    let totalDurationMs = 0;
+
+    uniquePlays.forEach((entry) => {
+        const durationMs = getWeeklyRecapDurationMs(entry);
+        totalDurationMs += durationMs;
+
+        const trackKey = normalizeChoiceValue(
+            entry.spotifyId
+            || entry.videoId
+            || `${entry.title || ''}:${entry.artist || ''}`
+        ).toLowerCase();
+        const currentTrack = tracks.get(trackKey) || {
+            title: entry.title || 'Sans titre',
+            artist: entry.artist || 'Artiste inconnu',
+            thumb: entry.thumb || entry.thumbnail || '',
+            videoId: entry.videoId || '',
+            spotifyId: entry.spotifyId || '',
+            plays: 0,
+            durationMs: 0
+        };
+        currentTrack.plays += 1;
+        currentTrack.durationMs += durationMs;
+        if (!currentTrack.thumb) currentTrack.thumb = entry.thumb || entry.thumbnail || '';
+        tracks.set(trackKey, currentTrack);
+
+        const artistNames = splitTrackArtists(entry.artist || entry.uploaderName || 'Artiste inconnu');
+        artistNames.forEach((artistName) => {
+            const artistKey = artistName.toLowerCase();
+            const currentArtist = artists.get(artistKey) || {
+                name: artistName,
+                thumb: entry.thumb || entry.thumbnail || '',
+                plays: 0,
+                durationMs: 0
+            };
+            currentArtist.plays += 1;
+            currentArtist.durationMs += durationMs;
+            if (!currentArtist.thumb) currentArtist.thumb = entry.thumb || entry.thumbnail || '';
+            artists.set(artistKey, currentArtist);
+        });
+    });
+
+    const toRankedList = (values) => Array.from(values)
+        .sort((left, right) => (
+            right.durationMs - left.durationMs
+            || right.plays - left.plays
+        ))
+        .slice(0, 5)
+        .map((item, index) => ({
+            ...item,
+            rank: index + 1,
+            minutes: Math.max(1, Math.round(item.durationMs / 60000))
+        }));
+
+    const rankedArtists = toRankedList(artists.values());
+    const rankedTracks = toRankedList(tracks.values());
+    const topArtist = rankedArtists[0] || null;
+    const topTrack = rankedTracks[0] || null;
+    const formatDate = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' });
+    const finalDay = new Date(period.endsAt);
+    finalDay.setDate(finalDay.getDate() - 1);
+
+    const label = isFallback
+        ? "Mon top écoutes général"
+        : `${formatDate.format(period.startsAt)} - ${formatDate.format(finalDay)}`;
+
+    return {
+        week: {
+            id: period.id,
+            startsAt: period.startsAt.toISOString(),
+            endsAt: period.endsAt.toISOString(),
+            label
+        },
+        hasData: uniquePlays.length > 0,
+        totalPlays: uniquePlays.length,
+        totalMinutes: uniquePlays.length ? Math.max(1, Math.round(totalDurationMs / 60000)) : 0,
+        topArtist,
+        topTrack,
+        artists: rankedArtists,
+        tracks: rankedTracks
+    };
 };
 
 // --- Music Discovery Config ---
@@ -1259,20 +1425,27 @@ const isDefinitiveYTCandidate = (analysis) => Boolean(
 const formatSpotifyTrackPayload = (track, fallbackImage = '') => {
     const artists = Array.isArray(track.artists) ? track.artists : [];
     const artistNames = artists.map(a => normalizeChoiceValue(a?.name || a));
+    const rawId = normalizeChoiceValue(track.spotifyId || track.id || '');
+    const spotifyId = normalizeChoiceValue(
+        track.spotifyId || (/^[A-Za-z0-9]{22}$/.test(normalizeChoiceValue(track.id || '')) ? track.id : '')
+    );
+    const metadataId = rawId || `metadata-${normalizeComparisonValue(`${track.name || track.title || ''}-${artistNames.join('-')}`).replace(/\s+/g, '-')}`;
 
     // Ensure we use the best available Spotify image
     const spotifyImage = track.imageUrl || track.album?.imageUrl || (Array.isArray(track.album?.images) && track.album.images.length > 0 ? track.album.images[0].url : '');
 
     return {
-        id: track.spotifyId || track.id,
+        id: spotifyId || metadataId,
         videoId: null, // No video ID yet (Lazy resolution at playback)
         title: track.name || 'Sans titre',
         artist: artistNames.join(', ') || 'Artiste inconnu',
         album: track.album?.name || '',
         thumbnail: spotifyImage || track.thumb || fallbackImage || '',
         duration: Math.round((track.durationMs || track.duration_ms || 0) / 1000),
-        spotifyId: track.spotifyId || track.id,
-        source: 'spotify',
+        durationMs: track.durationMs || track.duration_ms || 0,
+        trackNumber: Number.parseInt(track.trackNumber || track.track_number || track.track_position || '0', 10) || 0,
+        spotifyId,
+        source: normalizeChoiceValue(track.source || '') || (spotifyId ? 'spotify' : 'metadata'),
         artists: artists
     };
 };
@@ -1303,7 +1476,7 @@ const mergePlayableItems = (...groups) => {
 
         if (videoId) seenVideoIds.add(videoId);
         if (spotifyId) seenSpotifyIds.add(spotifyId);
-        
+
         mergedItems.push({ ...item, videoId: videoId || null });
     });
 
@@ -1339,117 +1512,588 @@ const getArtistSpotifyAlbumTrackFallback = async (profile) => {
         ...(Array.isArray(discography.albums) ? discography.albums : []),
         ...(Array.isArray(discography.singles) ? discography.singles : [])
     ]
-        .filter((album) => normalizeChoiceValue(album?.spotifyId || ''))
+        .filter((album) => normalizeChoiceValue(album?.spotifyId || ''));
+
+    // Prioritize main albums over singles, and singles over appears_on features
+    const sortedCandidates = [...albumCandidates].sort((a, b) => {
+        const groupA = normalizeChoiceValue(a.group || a.type || 'album').toLowerCase();
+        const groupB = normalizeChoiceValue(b.group || b.type || 'album').toLowerCase();
+
+        const typePriority = { 'album': 1, 'single': 2, 'appears_on': 3 };
+        const aPriority = typePriority[groupA] || 4;
+        const bPriority = typePriority[groupB] || 4;
+
+        if (aPriority !== bPriority) {
+            return aPriority - bPriority;
+        }
+        return (b.releaseDate || '').localeCompare(a.releaseDate || '');
+    });
+
+    const uniqueAlbums = sortedCandidates
         .filter((album, index, items) => {
             const currentId = normalizeChoiceValue(album.spotifyId || '');
             return items.findIndex((candidate) => normalizeChoiceValue(candidate?.spotifyId || '') === currentId) === index;
         })
-        .slice(0, 5);
+        .slice(0, 20);
 
-    if (!albumCandidates.length) {
+    if (!uniqueAlbums.length) {
         return [];
     }
 
-    const albumResults = await Promise.allSettled(
-        albumCandidates.map((album) => spotify.getAlbum(album.spotifyId))
+    const loadedAlbums = await spotify.getAlbumsIndividually(
+        uniqueAlbums.map((album) => album.spotifyId),
+        { concurrency: 4 }
     );
 
-    const spotifyTracks = [];
-    const seenTrackIds = new Set();
-
-    albumResults.forEach((result) => {
-        if (result.status !== 'fulfilled' || !Array.isArray(result.value?.tracks)) return;
-
-        result.value.tracks.forEach((track) => {
+    const albumsTracks = loadedAlbums.map((album) => {
+        if (!Array.isArray(album?.tracks)) return [];
+        return album.tracks.filter((track) => {
             const trackArtists = Array.isArray(track?.artists) ? track.artists : [];
-            const belongsToArtist = trackArtists.some((artist) => {
+            return trackArtists.some((artist) => {
                 const trackArtistId = normalizeChoiceValue(artist?.spotifyId || '');
                 const trackArtistName = normalizeChoiceValue(artist?.name || '');
                 return (artistId && trackArtistId === artistId)
                     || (artistName && normalizeComparisonValue(trackArtistName) === normalizeComparisonValue(artistName));
             });
-
-            if (!belongsToArtist) return;
-
-            const trackId = normalizeChoiceValue(track?.spotifyId || `${track?.name || ''}:${track?.album?.spotifyId || ''}`);
-            if (!trackId || seenTrackIds.has(trackId)) return;
-
-            seenTrackIds.add(trackId);
-            spotifyTracks.push(track);
         });
     });
 
-    return spotifyTracks.slice(0, 10);
+    const interleaved = [];
+    const seenTrackIds = new Set();
+    let hasMore = true;
+    let trackIndex = 0;
+
+    while (hasMore && interleaved.length < 10) {
+        hasMore = false;
+        for (const tracks of albumsTracks) {
+            if (trackIndex < tracks.length) {
+                hasMore = true;
+                const track = tracks[trackIndex];
+                const trackId = normalizeChoiceValue(track?.spotifyId || `${track?.name || ''}:${track?.album?.spotifyId || ''}`);
+                if (trackId && !seenTrackIds.has(trackId)) {
+                    seenTrackIds.add(trackId);
+                    interleaved.push(track);
+                    if (interleaved.length >= 10) {
+                        break;
+                    }
+                }
+            }
+        }
+        if (interleaved.length >= 10) {
+            break;
+        }
+        trackIndex++;
+    }
+
+    return interleaved;
 };
 
-const getPreferenceFallbackRecommendations = async (preferences) => {
-    if (!spotify.hasSpotifyConfig()) return [];
+const DEEZER_FALLBACK_API_BASE = 'https://api.deezer.com';
+const DEEZER_FALLBACK_CACHE_TTL_MS = 30 * 60 * 1000;
+const deezerFallbackCache = new Map();
+
+const getBestDeezerImageUrl = (item = {}) => normalizeChoiceValue(
+    item.picture_xl
+    || item.picture_big
+    || item.picture_medium
+    || item.cover_xl
+    || item.cover_big
+    || item.cover_medium
+    || item.imageUrl
+    || ''
+);
+
+const buildFallbackEntityId = (prefix, rawId, fallbackLabel = '') => {
+    const safeRawId = normalizeChoiceValue(String(rawId || '')).replace(/[^A-Za-z0-9_-]/g, '');
+    if (safeRawId) {
+        return `${prefix}-${safeRawId}`;
+    }
+
+    const slug = normalizeComparisonValue(fallbackLabel).replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '');
+    return `${prefix}-${slug || crypto.randomUUID()}`;
+};
+
+const getDeezerFallbackJson = async (pathname, params = {}) => {
+    const url = new URL(pathname, DEEZER_FALLBACK_API_BASE);
+    Object.entries(params).forEach(([key, value]) => {
+        const normalizedValue = normalizeChoiceValue(String(value ?? ''));
+        if (normalizedValue) {
+            url.searchParams.set(key, normalizedValue);
+        }
+    });
+
+    const cacheKey = url.toString();
+    const cached = deezerFallbackCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.data;
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Deezer fallback failed (${response.status})`);
+    }
+
+    const data = await response.json();
+    if (data?.error) {
+        throw new Error(data.error?.message || 'Deezer fallback returned an error');
+    }
+
+    deezerFallbackCache.set(cacheKey, {
+        expiresAt: Date.now() + DEEZER_FALLBACK_CACHE_TTL_MS,
+        data
+    });
+
+    return data;
+};
+
+const normalizeDeezerArtist = (artist) => {
+    const name = normalizeChoiceValue(artist?.name || '');
+    if (!name) return null;
+
+    const followers = Number.parseInt(artist?.nb_fan || artist?.fans || '0', 10) || 0;
+
+    return {
+        spotifyId: '',
+        deezerId: normalizeChoiceValue(String(artist?.id || '')),
+        name,
+        imageUrl: getBestDeezerImageUrl(artist),
+        spotifyUrl: normalizeChoiceValue(artist?.link || ''),
+        genres: [],
+        popularity: 0,
+        followers,
+        source: 'deezer-fallback'
+    };
+};
+
+const pickBestDeezerArtistMatch = (artistName, artists = []) => {
+    const normalizedName = normalizeComparisonValue(artistName);
+    const normalizedArtists = artists
+        .map(normalizeDeezerArtist)
+        .filter(Boolean);
+
+    if (!normalizedArtists.length) return null;
+
+    const exactMatch = normalizedArtists.find((artist) => normalizeComparisonValue(artist.name) === normalizedName);
+    if (exactMatch) return exactMatch;
+
+    const prefixMatch = normalizedArtists.find((artist) => {
+        const candidate = normalizeComparisonValue(artist.name);
+        return candidate.startsWith(normalizedName) || normalizedName.startsWith(candidate);
+    });
+    if (prefixMatch) return prefixMatch;
+
+    return [...normalizedArtists].sort((a, b) => (b.followers || 0) - (a.followers || 0))[0];
+};
+
+const getDeezerArtistFallback = async (artistName) => {
+    const normalizedName = normalizeChoiceValue(artistName);
+    if (!normalizedName) return null;
+
+    const data = await getDeezerFallbackJson('/search/artist', {
+        q: normalizedName,
+        limit: 12
+    });
+
+    return pickBestDeezerArtistMatch(normalizedName, Array.isArray(data?.data) ? data.data : []);
+};
+
+const normalizeDeezerAlbum = (album, artist) => {
+    const title = normalizeChoiceValue(album?.title || album?.name || '');
+    if (!title) return null;
+
+    const totalTracks = Number.parseInt(album?.nb_tracks || album?.tracks || '0', 10) || 0;
+    const recordType = normalizeChoiceValue(album?.record_type || album?.type || '').toLowerCase();
+    const group = recordType.includes('single') || recordType.includes('ep') || (totalTracks > 0 && totalTracks <= 3)
+        ? 'single'
+        : 'album';
+
+    return {
+        spotifyId: '',
+        deezerId: normalizeChoiceValue(String(album?.id || '')),
+        name: title,
+        imageUrl: getBestDeezerImageUrl(album) || artist?.imageUrl || '',
+        spotifyUrl: normalizeChoiceValue(album?.link || ''),
+        artists: [artist?.name || 'Artiste inconnu'].filter(Boolean),
+        releaseDate: normalizeChoiceValue(album?.release_date || ''),
+        totalTracks,
+        type: group === 'single' ? 'single' : 'album',
+        group,
+        source: 'deezer-fallback'
+    };
+};
+
+const normalizeDeezerTrack = (track, artist) => {
+    const title = normalizeChoiceValue(track?.title_short || track?.title || track?.name || '');
+    if (!title) return null;
+
+    const artists = [];
+    const addArtist = (artistName) => {
+        const name = normalizeChoiceValue(artistName);
+        if (!name) return;
+        const identity = normalizeComparisonValue(name);
+        if (artists.some((item) => normalizeComparisonValue(item.name) === identity)) return;
+        artists.push({ name });
+    };
+
+    addArtist(track?.artist?.name);
+    if (Array.isArray(track?.contributors)) {
+        track.contributors.forEach((contributor) => addArtist(contributor?.name));
+    }
+    addArtist(artist?.name);
+
+    const albumImage = getBestDeezerImageUrl(track?.album || {});
+    const durationSeconds = Number.parseInt(track?.duration || '0', 10) || 0;
+
+    return {
+        id: buildFallbackEntityId('deezer-track', track?.id, `${artist?.name || ''}-${title}`),
+        spotifyId: '',
+        name: title,
+        imageUrl: albumImage || artist?.imageUrl || '',
+        artists,
+        durationMs: durationSeconds > 0 ? durationSeconds * 1000 : 0,
+        trackNumber: Number.parseInt(track?.track_position || track?.trackNumber || '0', 10) || 0,
+        album: {
+            name: normalizeChoiceValue(track?.album?.title || ''),
+            imageUrl: albumImage || artist?.imageUrl || ''
+        },
+        source: 'deezer-fallback'
+    };
+};
+
+const normalizeDeezerAlbumDetail = async (albumId) => {
+    const data = await getDeezerFallbackJson(`/album/${encodeURIComponent(albumId)}`);
+    const artist = normalizeDeezerArtist(data?.artist || {}) || {
+        spotifyId: '',
+        deezerId: normalizeChoiceValue(String(data?.artist?.id || '')),
+        name: normalizeChoiceValue(data?.artist?.name || 'Artiste inconnu'),
+        imageUrl: '',
+        spotifyUrl: '',
+        genres: [],
+        popularity: 0,
+        followers: 0,
+        source: 'deezer-fallback'
+    };
+    const album = normalizeDeezerAlbum(data, artist);
+    if (!album) {
+        throw new Error('Album Deezer introuvable.');
+    }
+
+    const coverImage = getBestDeezerImageUrl(data) || album.imageUrl || artist.imageUrl || '';
+    const tracks = Array.isArray(data?.tracks?.data)
+        ? data.tracks.data.map((track) => normalizeDeezerTrack({
+            ...track,
+            album: {
+                title: data.title,
+                cover_xl: data.cover_xl,
+                cover_big: data.cover_big,
+                cover_medium: data.cover_medium
+            }
+        }, artist)).filter(Boolean)
+        : [];
+
+    return {
+        ...album,
+        imageUrl: coverImage,
+        spotifyUrl: normalizeChoiceValue(data?.link || album.spotifyUrl || ''),
+        label: normalizeChoiceValue(data?.label || ''),
+        genres: Array.isArray(data?.genres?.data)
+            ? data.genres.data.map((genre) => normalizeChoiceValue(genre?.name || '')).filter(Boolean).slice(0, 6)
+            : [],
+        totalTracks: Number.parseInt(data?.nb_tracks || album.totalTracks || tracks.length || '0', 10) || tracks.length,
+        releaseDate: normalizeChoiceValue(data?.release_date || album.releaseDate || ''),
+        tracks: await mapSpotifyTracksToPlayablePayload(tracks, coverImage)
+    };
+};
+
+const dedupeCatalogItems = (items, getKey) => {
+    const seen = new Set();
+    return items.filter((item) => {
+        const key = normalizeComparisonValue(getKey(item));
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+};
+
+const getDeezerArtistCatalogFallback = async (artistName) => {
+    const emptyCatalog = {
+        artist: null,
+        topTracks: [],
+        discography: { popular: [], albums: [], singles: [] }
+    };
 
     try {
-        const preferenceArtists = Array.isArray(preferences?.artists)
-            ? preferences.artists
+        const artist = await getDeezerArtistFallback(artistName);
+        if (!artist?.deezerId) return emptyCatalog;
+
+        const [topTracksResult, albumsResult] = await Promise.allSettled([
+            getDeezerFallbackJson(`/artist/${encodeURIComponent(artist.deezerId)}/top`, { limit: 10 }),
+            getDeezerFallbackJson(`/artist/${encodeURIComponent(artist.deezerId)}/albums`, { limit: 50 })
+        ]);
+
+        let deezerTracks = topTracksResult.status === 'fulfilled' && Array.isArray(topTracksResult.value?.data)
+            ? topTracksResult.value.data
             : [];
-        const artistSeeds = (preferences?.artists || [])
-            .map((artist) => artist.spotifyId)
-            .filter(Boolean)
-            .slice(0, 5);
 
-        // Map raw genres (e.g. "Rap") to Spotify canonical seeds (e.g. "hip-hop")
-        const genreSeeds = await buildSpotifyGenreSeeds(preferences?.genres || [], artistSeeds.length);
+        if (!deezerTracks.length) {
+            const searchTracks = await getDeezerFallbackJson('/search/track', {
+                q: `artist:"${artist.name}"`,
+                limit: 10
+            });
+            deezerTracks = Array.isArray(searchTracks?.data) ? searchTracks.data : [];
+        }
 
-        let spotifyTracks = [];
+        const topTracks = dedupeCatalogItems(
+            deezerTracks.map((track) => normalizeDeezerTrack(track, artist)).filter(Boolean),
+            (track) => `${track.name}:${track.artists.map((trackArtist) => trackArtist.name).join('|')}`
+        ).slice(0, 10);
 
-        if (artistSeeds.length === 0 && genreSeeds.length === 0) {
-            spotifyTracks = await spotify.getTopTracks('FR', { limit: 20 });
-        } else {
-            spotifyTracks = await spotify.getRecommendations({
-                seedArtists: artistSeeds.slice(0, 3),
-                seedGenres: genreSeeds,
-                limit: 20
+        const releases = albumsResult.status === 'fulfilled' && Array.isArray(albumsResult.value?.data)
+            ? dedupeCatalogItems(
+                albumsResult.value.data.map((album) => normalizeDeezerAlbum(album, artist)).filter(Boolean),
+                (album) => `${album.name}:${album.releaseDate || album.deezerId}`
+            )
+            : [];
+
+        const albums = releases.filter((album) => album.group === 'album');
+        const singles = releases.filter((album) => album.group === 'single');
+
+        return {
+            artist,
+            topTracks,
+            discography: {
+                popular: releases.slice(0, 10),
+                albums: albums.slice(0, 36),
+                singles: singles.slice(0, 36)
+            }
+        };
+    } catch (error) {
+        console.warn(`[Deezer fallback] Artist catalog failed for "${artistName}":`, error.message);
+        return emptyCatalog;
+    }
+};
+
+const normalizeArtistDiscography = (discography = {}) => ({
+    popular: Array.isArray(discography.popular) ? discography.popular : [],
+    albums: Array.isArray(discography.albums) ? discography.albums : [],
+    singles: Array.isArray(discography.singles) ? discography.singles : []
+});
+
+const isWeakFallbackReleaseList = (items = []) => !items.length || items.every((item) => {
+    const source = normalizeChoiceValue(item?.source || '').toLowerCase();
+    const name = normalizeChoiceValue(item?.name || '');
+    return source === 'fallback' || / essentials$/i.test(name);
+});
+
+const mergeArtistDiscographyFallback = (primaryDiscography, fallbackDiscography) => {
+    const primary = normalizeArtistDiscography(primaryDiscography);
+    const fallback = normalizeArtistDiscography(fallbackDiscography);
+    const albums = isWeakFallbackReleaseList(primary.albums) && fallback.albums.length ? fallback.albums : primary.albums;
+    const singles = isWeakFallbackReleaseList(primary.singles) && fallback.singles.length ? fallback.singles : primary.singles;
+    const fallbackPopular = fallback.popular.length ? fallback.popular : [...albums, ...singles].slice(0, 10);
+    const popular = isWeakFallbackReleaseList(primary.popular) && fallbackPopular.length ? fallbackPopular : primary.popular;
+
+    return { popular, albums, singles };
+};
+
+const getOfflineFallbackRecommendations = (userId) => {
+    try {
+        const db = getDB();
+
+        // Pool tracks from all users' histories to find the most popular tracks
+        const allTracksMap = new Map();
+        if (db && Array.isArray(db.users)) {
+            db.users.forEach(u => {
+                const history = u.history || [];
+                history.forEach(track => {
+                    if (!track.videoId) return;
+                    const key = track.videoId;
+                    if (!allTracksMap.has(key)) {
+                        allTracksMap.set(key, {
+                            id: track.videoId,
+                            videoId: track.videoId,
+                            spotifyId: track.spotifyId || '',
+                            title: track.title,
+                            artist: track.artist,
+                            thumb: track.thumb,
+                            source: track.source || 'youtube',
+                            durationMs: track.durationMs || 180000,
+                            count: 0
+                        });
+                    }
+                    allTracksMap.get(key).count += 1;
+                });
             });
         }
 
-        if (spotifyTracks.length < 6 && preferenceArtists.length > 0) {
-            const artistTrackResults = await Promise.allSettled(
-                preferenceArtists.slice(0, 4).map(async (artist) => {
-                    const spotifyId = normalizeChoiceValue(artist?.spotifyId || '');
-                    const artistName = normalizeChoiceValue(artist?.name || '');
+        // Sort by count descending
+        const popularTracks = Array.from(allTracksMap.values())
+            .sort((a, b) => b.count - a.count)
+            .map(({ count, ...track }) => track);
 
-                    if (spotifyId) {
-                        const topTracks = await spotify.getArtistTopTracks(spotifyId, { artistName });
-                        if (topTracks.length) {
-                            return topTracks;
-                        }
-                    }
-
-                    if (!artistName) return [];
-
-                    const searchedTracks = await spotify.searchTracks(artistName, { limit: 10 });
-                    return searchedTracks.filter((track) => {
-                        const artists = Array.isArray(track?.artists) ? track.artists : [];
-                        return artists.some((trackArtist) => (
-                            normalizeComparisonValue(trackArtist?.name || trackArtist) === normalizeComparisonValue(artistName)
-                        ));
-                    });
-                })
-            );
-
-            spotifyTracks = mergeSpotifyTracks(
-                spotifyTracks,
-                ...artistTrackResults.map((result) => result.status === 'fulfilled' ? result.value : [])
-            );
+        if (popularTracks.length >= 6) {
+            return popularTracks;
         }
-
-        if (spotifyTracks.length < 6) {
-            const chartTracks = await spotify.getTopTracks('FR', { limit: 20 });
-            spotifyTracks = mergeSpotifyTracks(spotifyTracks, chartTracks);
-        }
-
-        return await mapSpotifyTracksToPlayablePayload(spotifyTracks.slice(0, 20));
-    } catch (err) {
-        console.error('Spotify fallback recommendations error:', err);
-        return [];
+    } catch (dbError) {
+        console.error('Failed to load local DB recommendations:', dbError);
     }
+
+    // Static fallback list (French Hits)
+    return [
+        {
+            id: "J05Ww73KlLE",
+            videoId: "J05Ww73KlLE",
+            spotifyId: "",
+            title: "Distant",
+            artist: "Maes feat. Ninho",
+            thumb: "https://cdn-images.dzcdn.net/images/cover/b0122ae8efd3951902e1f01673a4f219/1000x1000-000000-80-0-0.jpg",
+            source: "spotify",
+            durationMs: 181000
+        },
+        {
+            id: "3r813K1jK1k",
+            videoId: "3r813K1jK1k",
+            spotifyId: "",
+            title: "Madrina",
+            artist: "Maes feat. Booba",
+            thumb: "https://cdn-images.dzcdn.net/images/cover/708aea49a3c6311ba1d83273e6a4d0e3/1000x1000-000000-80-0-0.jpg",
+            source: "spotify",
+            durationMs: 200000
+        },
+        {
+            id: "5wY31c9a6oM",
+            videoId: "5wY31c9a6oM",
+            spotifyId: "",
+            title: "PARANO",
+            artist: "GAULOIS feat. Maes",
+            thumb: "https://cdn-images.dzcdn.net/images/cover/f53927289cf5798a4d82f92d953ea2ff/1000x1000-000000-80-0-0.jpg",
+            source: "spotify",
+            durationMs: 185000
+        },
+        {
+            id: "j93dSpC8T3A",
+            videoId: "j93dSpC8T3A",
+            spotifyId: "",
+            title: "T'avais raison",
+            artist: "GIMS, Maes",
+            thumb: "https://cdn-images.dzcdn.net/images/cover/fe8d3b62b12560fe169d428b0d28597e/1000x1000-000000-80-0-0.jpg",
+            source: "spotify",
+            durationMs: 181000
+        },
+        {
+            id: "Gq4oD5k_yv4",
+            videoId: "Gq4oD5k_yv4",
+            spotifyId: "",
+            title: "FC BEAUDOTTES",
+            artist: "Maes",
+            thumb: "https://cdn-images.dzcdn.net/images/cover/eb87bb36f5eaac37d553b85143bf8eed/1000x1000-000000-80-0-0.jpg",
+            source: "spotify",
+            durationMs: 185000
+        },
+        {
+            id: "4CgR-p1hLsk",
+            videoId: "4CgR-p1hLsk",
+            spotifyId: "",
+            title: "HIJAMA",
+            artist: "Maes",
+            thumb: "https://cdn-images.dzcdn.net/images/cover/33546e8c7b544a4a20d6592af1f4ad56/1000x1000-000000-80-0-0.jpg",
+            source: "spotify",
+            durationMs: 193000
+        },
+        {
+            id: "d4TndR9g83M",
+            videoId: "d4TndR9g83M",
+            spotifyId: "",
+            title: "Tout va bien",
+            artist: "Alonzo feat. Ninho & Naps",
+            thumb: "https://cdn-images.dzcdn.net/images/cover/444dfc082c5570458c36f0268b5a206e/1000x1000-000000-80-0-0.jpg",
+            source: "spotify",
+            durationMs: 190000
+        },
+        {
+            id: "c7D2aI_A1P4",
+            videoId: "c7D2aI_A1P4",
+            spotifyId: "",
+            title: "La Kiffance",
+            artist: "Naps",
+            thumb: "https://cdn-images.dzcdn.net/images/cover/0846f00620ad172c934e89bcad774388/1000x1000-000000-80-0-0.jpg",
+            source: "spotify",
+            durationMs: 179000
+        }
+    ];
+};
+
+const getPreferenceFallbackRecommendations = async (preferences, userId = null) => {
+    if (spotify.hasSpotifyConfig()) {
+        try {
+            const preferenceArtists = Array.isArray(preferences?.artists)
+                ? preferences.artists
+                : [];
+            const artistSeeds = (preferences?.artists || [])
+                .map((artist) => artist.spotifyId)
+                .filter(Boolean)
+                .slice(0, 5);
+
+            // Map raw genres (e.g. "Rap") to Spotify canonical seeds (e.g. "hip-hop")
+            const genreSeeds = await buildSpotifyGenreSeeds(preferences?.genres || [], artistSeeds.length);
+
+            let spotifyTracks = [];
+
+            if (artistSeeds.length === 0 && genreSeeds.length === 0) {
+                spotifyTracks = await spotify.getTopTracks('FR', { limit: 20 });
+            } else {
+                spotifyTracks = await spotify.getRecommendations({
+                    seedArtists: artistSeeds.slice(0, 3),
+                    seedGenres: genreSeeds,
+                    limit: 20
+                });
+            }
+
+            if (spotifyTracks.length < 6 && preferenceArtists.length > 0) {
+                const artistTrackResults = await Promise.allSettled(
+                    preferenceArtists.slice(0, 4).map(async (artist) => {
+                        const spotifyId = normalizeChoiceValue(artist?.spotifyId || '');
+                        const artistName = normalizeChoiceValue(artist?.name || '');
+
+                        if (spotifyId) {
+                            const topTracks = await spotify.getArtistTopTracks(spotifyId, { artistName });
+                            if (topTracks.length) {
+                                return topTracks;
+                            }
+                        }
+
+                        if (!artistName) return [];
+
+                        const searchedTracks = await spotify.searchTracks(artistName, { limit: 10 });
+                        return searchedTracks.filter((track) => {
+                            const artists = Array.isArray(track?.artists) ? track.artists : [];
+                            return artists.some((trackArtist) => (
+                                normalizeComparisonValue(trackArtist?.name || trackArtist) === normalizeComparisonValue(artistName)
+                            ));
+                        });
+                    })
+                );
+
+                spotifyTracks = mergeSpotifyTracks(
+                    spotifyTracks,
+                    ...artistTrackResults.map((result) => result.status === 'fulfilled' ? result.value : [])
+                );
+            }
+
+            if (spotifyTracks.length < 6) {
+                const chartTracks = await spotify.getTopTracks('FR', { limit: 20 });
+                spotifyTracks = mergeSpotifyTracks(spotifyTracks, chartTracks);
+            }
+
+            if (spotifyTracks.length > 0) {
+                return await mapSpotifyTracksToPlayablePayload(spotifyTracks.slice(0, 20));
+            }
+        } catch (err) {
+            console.error('Spotify fallback recommendations error:', err);
+        }
+    }
+
+    return getOfflineFallbackRecommendations(userId);
 };
 
 
@@ -1497,12 +2141,12 @@ const fetchYouTube = (url, headers = {}, redirectCount = 0) => {
     const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
     return new Promise((resolve, reject) => {
         const options = {
-            headers: { 
-                'User-Agent': ua, 
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8', 
-                'Accept-Language': 'fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3', 
+            headers: {
+                'User-Agent': ua,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3',
                 'Referer': 'https://www.google.com/',
-                ...headers 
+                ...headers
             },
             timeout: 10000, rejectUnauthorized: false
         };
@@ -1589,13 +2233,13 @@ const scrapeYouTube = async (query, { audioHint = true, musicOnly = true } = {})
         const searchTerms = [cleanQuery, audioHint ? 'audio' : ''].filter(Boolean).join(' ');
         const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerms)}${musicOnly ? '&sp=EgIQAQ%253D%253D' : ''}`;
         const { status, body } = await fetchYouTube(searchUrl);
-        
+
         const regexes = [
             /var ytInitialData = (\{.*?\});/s,
             /window\["ytInitialData"\] = (\{.*?\});/s,
             /ytInitialData = (\{.*?\});/s
         ];
-        
+
         let match = null;
         for (let r of regexes) {
             match = body.match(r);
@@ -1624,13 +2268,13 @@ const scrapeYouTube = async (query, { audioHint = true, musicOnly = true } = {})
                 throw new Error('Could not extract ytInitialData from YouTube');
             }
         }
-        
+
         const data = JSON.parse(match[1]);
         const items = [];
-        
+
         // Try multiple content paths (YouTube changes structure sometimes)
         let contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents;
-        
+
         if (!contents) {
             // Try alternative path
             const sections = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
@@ -1639,7 +2283,7 @@ const scrapeYouTube = async (query, { audioHint = true, musicOnly = true } = {})
                 if (contents && contents.some(c => c.videoRenderer)) break;
             }
         }
-        
+
         if (!contents) {
             console.warn('   YT Scraper: No video contents found in response');
             return { items: [] };
@@ -1649,7 +2293,7 @@ const scrapeYouTube = async (query, { audioHint = true, musicOnly = true } = {})
             if (item.videoRenderer) {
                 const v = item.videoRenderer;
                 if (!v.videoId) continue;
-                
+
                 let uploaderUrl = '';
                 if (v.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url) {
                     uploaderUrl = v.ownerText.runs[0].navigationEndpoint.commandMetadata.webCommandMetadata.url;
@@ -1717,7 +2361,7 @@ const tryPipedFetch = async (queryPath) => {
         pipedHealthCache.clear();
         healthyInstances = [...PIPED_INSTANCES];
     }
-    
+
     // Randomize to distribute load
     const shuffled = [...healthyInstances].sort(() => Math.random() - 0.5);
 
@@ -1754,7 +2398,7 @@ const normalizeSearchFilter = (value) => SEARCH_FILTERS[value] || SEARCH_FILTERS
 
 const fetchSearchItems = async (query, filter = 'music') => {
     if (!query) return [];
-    
+
     // PRIMARY: Try Piped API (faster and bypasses local CAPTCHA)
     try {
         const normalizedFilter = normalizeSearchFilter(filter);
@@ -2189,13 +2833,13 @@ app.post('/api/auth/register', async (req, res) => {
     saveDB(db);
 
     const token = jwt.sign({ id: newUser.id, email: newUser.email, role: newUser.role }, JWT_SECRET, { expiresIn: '30d' });
-    
+
     // Secure Cookie - Default 7 days after register
-    res.cookie('token', token, { 
-        httpOnly: true, 
-        secure: process.env.NODE_ENV === 'production', 
-        sameSite: 'Lax', 
-        maxAge: 7 * 24 * 60 * 60 * 1000 
+    res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
     console.log(`✅ New user registered: ${newUser.email} (${clientIP})`);
@@ -2211,7 +2855,7 @@ app.post('/api/auth/login', async (req, res) => {
         return res.status(403).json({ error: 'Configuration initiale requise.' });
     }
     const user = db.users.find(u => u.email.toLowerCase() === normalizedEmail);
-    
+
     if (!user) return res.status(401).json({ error: 'Identifiants invalides.' });
 
     const passwordWasHashed = isPasswordHash(user.password);
@@ -2248,12 +2892,12 @@ app.post('/api/auth/login', async (req, res) => {
     const { rememberMe } = req.body;
     const expiresIn = rememberMe ? '30d' : '7d';
     const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn });
-    
+
     // Set cookie age: 30 days if rememberMe, else 7 days (standard)
     const maxAge = (rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000;
 
-    res.cookie('token', token, { 
-        httpOnly: true, 
+    res.cookie('token', token, {
+        httpOnly: true,
         secure: process.env.NODE_ENV === 'production', // Use secure cookies only in production (HTTPS)
         sameSite: 'Lax', // More lenient than 'Strict' for development
         maxAge: maxAge
@@ -2268,14 +2912,14 @@ app.get('/api/auth/me', authenticate, (req, res) => {
     const db = getDB();
     const user = db.users.find(u => u.id === req.user.id);
     if (!user) return res.status(404).json({ error: 'Compte introuvable' });
-    
-    res.json({ 
-        user: { 
-            id: user.id, 
-            username: user.username, 
-            email: user.email, 
-            role: user.role 
-        } 
+
+    res.json({
+        user: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role
+        }
     });
 });
 
@@ -2297,7 +2941,7 @@ app.get('/api/music/search', authenticate, async (req, res) => {
     const filter = req.query.filter || 'all';
     const searchQueries = buildSearchQueryVariants(query);
     console.log(`🔍 Search: ${query} (filter: ${filter})`);
-    
+
     try {
         let spotifyItems = [];
         let spotifyTracks = [];
@@ -2362,6 +3006,49 @@ app.get('/api/user/recently-played', authenticate, (req, res) => {
     res.json(user?.recentlyPlayed || []);
 });
 
+app.get('/api/user/weekly-recap', authenticate, async (req, res) => {
+    const db = getDB();
+    const user = db.users.find(u => u.id === req.user.id);
+    if (!user) return res.status(404).json({ error: 'Utilisateur introuvable.' });
+
+    const recap = buildWeeklyRecap(user.history || []);
+
+    if (recap.hasData) {
+        if (Array.isArray(recap.artists)) {
+            await Promise.all(recap.artists.map(async (art) => {
+                try {
+                    const match = spotify.hasSpotifyConfig()
+                        ? await spotify.findBestArtistMatch(art.name)
+                        : spotify.buildFallbackArtist(art.name);
+                    if (match?.imageUrl) {
+                        art.thumb = match.imageUrl;
+                    }
+                } catch (err) {
+                    console.warn(`Could not enrich weekly recap artist image for ${art.name}:`, err.message);
+                }
+            }));
+        }
+
+        if (Array.isArray(recap.tracks) && spotify.hasSpotifyConfig()) {
+            await Promise.all(recap.tracks.map(async (track) => {
+                if (!track.spotifyId) return;
+                try {
+                    const spotifyTrack = await spotify.getTrack(track.spotifyId);
+                    const imageUrl = spotifyTrack?.imageUrl || spotifyTrack?.album?.imageUrl || '';
+                    if (imageUrl) {
+                        track.thumb = imageUrl;
+                    }
+                } catch (err) {
+                    console.warn(`Could not enrich weekly recap track image for ${track.title}:`, err.message);
+                }
+            }));
+        }
+    }
+
+    res.json(recap);
+});
+
+
 app.get('/api/music/recommendations/daily-mix', authenticate, async (req, res) => {
     try {
         const db = getDB();
@@ -2402,21 +3089,27 @@ app.get('/api/music/recommendations/daily-mix', authenticate, async (req, res) =
 
 app.get('/api/music/trending', authenticate, async (req, res) => {
     try {
-        if (!spotify.hasSpotifyConfig()) {
-            return res.json({ items: [] });
+        let items = [];
+        if (spotify.hasSpotifyConfig()) {
+            try {
+                const spotifyTracks = await spotify.getTopTracks('FR', { limit: 12 });
+                items = await mapSpotifyTracksToPlayablePayload(spotifyTracks);
+            } catch (err) {
+                console.error('Trending Spotify error, falling back to local top tracks:', err);
+            }
         }
 
-        // Get Top Tracks or Featured Playlists from Spotify
-        const spotifyTracks = await spotify.getTopTracks('FR', { limit: 12 });
-        const items = await mapSpotifyTracksToPlayablePayload(spotifyTracks);
+        if (!items || items.length === 0) {
+            items = getOfflineFallbackRecommendations(req.user.id).slice(0, 12);
+        }
 
         res.json({
             items,
             title: "Le Top du Moment — NeonWave",
-            spotifyEnabled: true
+            spotifyEnabled: spotify.hasSpotifyConfig()
         });
     } catch (err) {
-        console.error('Trending Spotify error:', err);
+        console.error('Trending final API error:', err);
         res.status(500).json({ error: 'Impossible de charger les tendances.' });
     }
 });
@@ -2438,10 +3131,10 @@ app.get('/api/music/recommendations/discovery', authenticate, async (req, res) =
             .filter(Boolean)
             .slice(0, 2);
 
-        const spotifyTracks = await spotify.getRecommendations({ 
-            seedTracks: trackSeeds, 
+        const spotifyTracks = await spotify.getRecommendations({
+            seedTracks: trackSeeds,
             seedArtists: artistSeeds,
-            limit: 12 
+            limit: 12
         });
         const items = await mapSpotifyTracksToPlayablePayload(spotifyTracks);
 
@@ -2541,6 +3234,24 @@ app.get('/api/spotify/albums/:id', authenticate, async (req, res) => {
     } catch (error) {
         console.error('Spotify album details error:', error);
         res.status(error.status || 500).json({ error: getSpotifyClientError(error, 'Impossible de charger cet album.') });
+    }
+});
+
+app.get('/api/deezer/albums/:id', authenticate, async (req, res) => {
+    try {
+        const albumId = normalizeChoiceValue(req.params.id || '');
+        if (!albumId) {
+            return res.status(400).json({ error: 'Album Deezer invalide.' });
+        }
+
+        const album = await normalizeDeezerAlbumDetail(albumId);
+        res.json({
+            item: album,
+            spotifyEnabled: spotify.hasSpotifyConfig()
+        });
+    } catch (error) {
+        console.error('Deezer album details error:', error);
+        res.status(500).json({ error: 'Impossible de charger cet album.' });
     }
 });
 
@@ -2648,6 +3359,22 @@ app.get('/api/music/resolve-by-metadata', authenticate, async (req, res) => {
     }
 });
 
+const resolvePipedStreamUrl = async (videoId) => {
+    try {
+        const data = await tryPipedFetch(`/streams/${encodeURIComponent(videoId)}`);
+        if (data && Array.isArray(data.audioStreams) && data.audioStreams.length > 0) {
+            const sorted = [...data.audioStreams].sort((left, right) => (right.bitrate || 0) - (left.bitrate || 0));
+            const bestStream = sorted[0];
+            if (bestStream?.url) {
+                return bestStream.url;
+            }
+        }
+    } catch (err) {
+        console.warn(`Piped stream resolution failed for ${videoId}:`, err.message);
+    }
+    return null;
+};
+
 const streamUrlCache = new Map(); // videoId -> { url, expires }
 
 app.get('/api/music/streams/:id', authenticate, async (req, res) => {
@@ -2665,21 +3392,33 @@ app.get('/api/music/streams/:id', authenticate, async (req, res) => {
             audioUrl = cached.url;
             console.log(`💾 Serving cached stream URL for: ${videoId}`);
         } else {
-            console.log(`🎬 Resolving YouTube stream via yt-dlp for: ${videoId}`);
-            audioUrl = await new Promise((resolve, reject) => {
-                const { exec } = require('child_process');
-                exec(`python -m yt_dlp -g -f bestaudio "${videoId}"`, (err, stdout, stderr) => {
-                    if (err) {
-                        return reject(new Error(stderr || err.message));
-                    }
-                    resolve(stdout.trim());
+            console.log(`🎬 Resolving YouTube stream via Piped API for: ${videoId}`);
+            audioUrl = await resolvePipedStreamUrl(videoId);
+
+            if (!audioUrl) {
+                console.log(`🎬 Piped resolution failed. Falling back to local yt-dlp for: ${videoId}`);
+                audioUrl = await new Promise((resolve, reject) => {
+                    const { exec } = require('child_process');
+                    exec(`python -m yt_dlp -g -f bestaudio "${videoId}"`, (err, stdout, stderr) => {
+                        if (err) {
+                            return reject(new Error(stderr || err.message));
+                        }
+                        resolve(stdout.trim());
+                    });
                 });
-            });
-            
-            // Parse expire parameter
-            const urlObj = new URL(audioUrl);
-            const expireParam = urlObj.searchParams.get('expire');
-            const expires = expireParam ? (parseInt(expireParam, 10) * 1000) - 60000 : Date.now() + 3600000;
+            }
+
+            let expires = Date.now() + 3600000;
+            try {
+                const urlObj = new URL(audioUrl);
+                const expireParam = urlObj.searchParams.get('expire');
+                if (expireParam) {
+                    expires = (parseInt(expireParam, 10) * 1000) - 60000;
+                }
+            } catch (err) {
+                console.warn('Could not parse stream URL expiration:', err.message);
+            }
+
             streamUrlCache.set(videoId, { url: audioUrl, expires });
             console.log(`✅ YouTube stream extracted and cached (expires in ${Math.round((expires - Date.now()) / 1000)}s)`);
         }
@@ -2755,7 +3494,7 @@ app.get('/api/spotify/artist-profile', authenticate, async (req, res) => {
             profile.topTracks || [],
             profile.artist?.imageUrl || ''
         );
-        const discography = profile.discography || { popular: [], albums: [], singles: [] };
+        let discography = normalizeArtistDiscography(profile.discography);
         const appearsOn = Array.isArray(profile.appearsOn) ? profile.appearsOn : [];
 
         if (!topTracks.length) {
@@ -2765,6 +3504,40 @@ app.get('/api/spotify/artist-profile', authenticate, async (req, res) => {
                     fallbackSpotifyTracks,
                     profile.artist?.imageUrl || ''
                 );
+            }
+        }
+
+        if (
+            !topTracks.length
+            || isWeakFallbackReleaseList(discography.popular)
+            || isWeakFallbackReleaseList(discography.albums)
+            || !normalizeChoiceValue(profile.artist?.imageUrl || '')
+            || normalizeChoiceValue(profile.artist?.source || '').toLowerCase() !== 'spotify'
+        ) {
+            const deezerCatalog = await getDeezerArtistCatalogFallback(profile.artist?.name || name);
+            if (deezerCatalog.artist) {
+                const useDeezerArtistImage = !normalizeChoiceValue(profile.artist?.imageUrl || '')
+                    || normalizeChoiceValue(profile.artist?.source || '').toLowerCase() !== 'spotify';
+
+                profile.artist = {
+                    ...profile.artist,
+                    imageUrl: useDeezerArtistImage && deezerCatalog.artist.imageUrl
+                        ? deezerCatalog.artist.imageUrl
+                        : profile.artist?.imageUrl,
+                    followers: Number.isFinite(profile.artist?.followers) && profile.artist.followers > 0
+                        ? profile.artist.followers
+                        : deezerCatalog.artist.followers,
+                    source: normalizeChoiceValue(profile.artist?.source || '') || deezerCatalog.artist.source
+                };
+
+                if (!topTracks.length && deezerCatalog.topTracks.length) {
+                    topTracks = await mapSpotifyTracksToPlayablePayload(
+                        deezerCatalog.topTracks,
+                        profile.artist?.imageUrl || deezerCatalog.artist.imageUrl || ''
+                    );
+                }
+
+                discography = mergeArtistDiscographyFallback(discography, deezerCatalog.discography);
             }
         }
 
@@ -2855,9 +3628,8 @@ app.post('/api/user/music-preferences', authenticate, async (req, res) => {
             console.error('Music preferences enrich warning:', enrichError);
         }
 
-        if (spotify.hasSpotifyConfig() && artists.some((artist) => !artist.spotifyId)) {
-            throw new Error('Choisissez uniquement des artistes Spotify valides pour lancer vos recommandations.');
-        }
+        // Accept fallback artists even when Spotify config exists but API is rate-limited
+        // Previously this blocked onboarding entirely when Spotify returned 429 errors
 
         const db = getDB();
         const user = getUserById(db, req.user.id);
@@ -2957,7 +3729,7 @@ app.get('/api/user/recommendations', authenticate, async (req, res) => {
         }
 
         if (recommendationItems.length < 6) {
-            const fallbackItems = await getPreferenceFallbackRecommendations(preferences);
+            const fallbackItems = await getPreferenceFallbackRecommendations(preferences, req.user.id);
             recommendationItems = mergePlayableItems(recommendationItems, fallbackItems);
         }
 
@@ -3485,12 +4257,12 @@ app.post('/api/admin/ban/:userId', authenticate, requireAdmin, (req, res) => {
     if (!target) return res.status(404).json({ error: 'Utilisateur introuvable.' });
     if (target.role === 'OWNER') return res.status(403).json({ error: 'Impossible de bannir le propriétaire.' });
     target.banned = true;
-    
+
     // Optionally also ban their last IP
     if (req.body.banIP && target.lastIP && !db.bannedIPs.includes(target.lastIP)) {
         db.bannedIPs.push(target.lastIP);
     }
-    
+
     saveDB(db);
     console.log(`🚫 User banned: ${target.email} ${req.body.banIP ? `(+ IP ${target.lastIP})` : ''}`);
     res.json({ success: true });
@@ -3527,7 +4299,7 @@ app.post('/api/admin/ban-ip', authenticate, requireAdmin, (req, res) => {
     res.json({ success: true });
 });
 
-// Unban an IP  
+// Unban an IP
 app.delete('/api/admin/ban-ip/:ip', authenticate, requireAdmin, (req, res) => {
     const db = getDB();
     db.bannedIPs = db.bannedIPs.filter(i => i !== req.params.ip);
@@ -3545,8 +4317,27 @@ app.get('*', (req, res, next) => {
 });
 
 const server = app.listen(PORT, () => {
-    console.log(`\n🌊 NeonWave PORTABLE (Ultra-Resilient): ${PORT}\n`);
+    const boundAddress = server.address();
+    const boundPort = typeof boundAddress === 'object' && boundAddress ? boundAddress.port : PORT;
+    console.log(`\n🌊 NeonWave PORTABLE (Ultra-Resilient): ${boundPort}\n`);
 });
+
+let currentPort = PORT;
+const originalEmit = server.emit;
+server.emit = function (event, ...args) {
+    if (event === 'error' && args[0]?.code === 'EADDRINUSE') {
+        console.warn(`[Server] Port ${currentPort} already in use. Retrying on port ${currentPort + 1}...`);
+        currentPort++;
+        try {
+            server.close();
+        } catch (e) {}
+        setTimeout(() => {
+            server.listen(currentPort);
+        }, 50);
+        return true;
+    }
+    return originalEmit.apply(this, [event, ...args]);
+};
 
 module.exports = {
     app,

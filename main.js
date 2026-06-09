@@ -75,6 +75,10 @@ ipcMain.handle('updater:install', async () => {
     autoUpdater.quitAndInstall();
 });
 
+ipcMain.handle('app:version', () => {
+    return app.getVersion();
+});
+
 let neonWaveServer = null;
 let serverStartupPromise = Promise.resolve(false);
 let mainWindow = null;
@@ -244,7 +248,12 @@ function setupAutoUpdater(win) {
     });
 
     autoUpdater.on('update-available', (info) => {
-        if (!win.isDestroyed()) win.webContents.send('updater:status', 'available');
+        if (!win.isDestroyed()) {
+            win.webContents.send('updater:status', 'available', {
+                version: info?.version,
+                releaseNotes: info?.releaseNotes
+            });
+        }
     });
 
     autoUpdater.on('update-not-available', (info) => {
@@ -260,7 +269,12 @@ function setupAutoUpdater(win) {
     });
 
     autoUpdater.on('update-downloaded', (info) => {
-        if (!win.isDestroyed()) win.webContents.send('updater:status', 'downloaded');
+        if (!win.isDestroyed()) {
+            win.webContents.send('updater:status', 'downloaded', {
+                version: info?.version,
+                releaseNotes: info?.releaseNotes
+            });
+        }
     });
 
     // Check for updates after window is ready

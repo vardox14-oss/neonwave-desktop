@@ -1,6 +1,6 @@
 {
   "name": "neonwave-backend",
-  "version": "1.1.0",
+  "version": "1.4.16",
   "description": "NeonWave Music Streaming API",
   "author": "NeonWave",
   "main": "main.js",
@@ -23,6 +23,7 @@
     "express": "^4.21.0",
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.1.0",
+    "hono": "^4.12.25",
     "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
@@ -71,6 +72,7 @@
       ]
     },
     "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,

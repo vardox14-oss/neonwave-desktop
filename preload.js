@@ -7,7 +7,8 @@ contextBridge.exposeInMainWorld('NeonWaveDesktop', {
     onUpdaterStatus: (callback) => {
         ipcRenderer.on('updater:status', (event, status, details) => callback(status, details));
     },
-    installUpdate: () => ipcRenderer.invoke('updater:install')
+    installUpdate: () => ipcRenderer.invoke('updater:install'),
+    getVersion: () => ipcRenderer.invoke('app:version')
 });
 
 window.addEventListener('DOMContentLoaded', () => {

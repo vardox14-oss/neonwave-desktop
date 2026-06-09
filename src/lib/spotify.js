@@ -21,11 +21,34 @@ let tokenCache = {
 const resultCache = new Map();
 
 const DEFAULT_FALLBACK_IMAGES = [
-    'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=400&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=400&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&auto=format&fit=crop'
+    'https://cdn-images.dzcdn.net/images/artist/14c919011b4dc5575aa64bcf7311aa5d/1000x1000-000000-80-0-0.jpg',
+    'https://cdn-images.dzcdn.net/images/artist/7601c5c0e2bd16cb585898316fd0dfec/1000x1000-000000-80-0-0.jpg',
+    'https://cdn-images.dzcdn.net/images/artist/8d9c407bd25fab0fc961b6abf335e874/1000x1000-000000-80-0-0.jpg',
+    'https://cdn-images.dzcdn.net/images/artist/f1a596b126611260994271ce4cb54bb0/1000x1000-000000-80-0-0.jpg'
 ];
+
+// Verified artist portraits used when Spotify is unavailable or rate-limited.
+const FALLBACK_ARTIST_IMAGES = {
+    'maes': 'https://cdn-images.dzcdn.net/images/artist/14c919011b4dc5575aa64bcf7311aa5d/1000x1000-000000-80-0-0.jpg',
+    'ninho': 'https://cdn-images.dzcdn.net/images/artist/7601c5c0e2bd16cb585898316fd0dfec/1000x1000-000000-80-0-0.jpg',
+    'sch': 'https://cdn-images.dzcdn.net/images/artist/8d9c407bd25fab0fc961b6abf335e874/1000x1000-000000-80-0-0.jpg',
+    'damso': 'https://cdn-images.dzcdn.net/images/artist/f1a596b126611260994271ce4cb54bb0/1000x1000-000000-80-0-0.jpg',
+    'gazo': 'https://cdn-images.dzcdn.net/images/artist/54c1dc208f92240e9d56b595708ed284/1000x1000-000000-80-0-0.jpg',
+    'tiakola': 'https://cdn-images.dzcdn.net/images/artist/0df16db136e7417eeef74988208859c3/1000x1000-000000-80-0-0.jpg',
+    'aya nakamura': 'https://cdn-images.dzcdn.net/images/artist/c8bca3e6aed3da8de8cbe0edd91bc156/1000x1000-000000-80-0-0.jpg',
+    'burna boy': 'https://cdn-images.dzcdn.net/images/artist/ad15b7f03325752d60db9e4d39c079ae/1000x1000-000000-80-0-0.jpg',
+    'drake': 'https://cdn-images.dzcdn.net/images/artist/eb0ed5b21d1ea5af021fc074ded0e91f/1000x1000-000000-80-0-0.jpg',
+    'the weeknd': 'https://cdn-images.dzcdn.net/images/artist/581693b4724a7fcfa754455101e13a44/1000x1000-000000-80-0-0.jpg',
+    'travis scott': 'https://cdn-images.dzcdn.net/images/artist/8d8316146026d7e6ce377e314536df62/1000x1000-000000-80-0-0.jpg',
+    'jul': 'https://cdn-images.dzcdn.net/images/artist/16eb681d72934d4db17088dfc216669d/1000x1000-000000-80-0-0.jpg',
+    'werenoi': 'https://cdn-images.dzcdn.net/images/artist/c9a941ffdfec123385b9e0b8b20f9ac0/1000x1000-000000-80-0-0.jpg',
+    'booba': 'https://cdn-images.dzcdn.net/images/artist/38b687e97c6874e744d305ef2ca8d0d0/1000x1000-000000-80-0-0.jpg',
+    'pnl': 'https://cdn-images.dzcdn.net/images/artist/9277fdce45b79945918c24f69cb6e8e3/1000x1000-000000-80-0-0.jpg',
+    'freeze corleone': 'https://cdn-images.dzcdn.net/images/artist/cdac7dd9008bcce4c12809c93989e348/1000x1000-000000-80-0-0.jpg',
+    'saif': 'https://cdn-images.dzcdn.net/images/artist/ce23fc0a3302d65712df2dcfeef5467e/1000x1000-000000-80-0-0.jpg',
+    'saïf': 'https://cdn-images.dzcdn.net/images/artist/ce23fc0a3302d65712df2dcfeef5467e/1000x1000-000000-80-0-0.jpg',
+    'pato': 'https://cdn-images.dzcdn.net/images/artist/28e12b8806d4baa0c3affc8e28a0809e/1000x1000-000000-80-0-0.jpg'
+};
 
 const DEFAULT_FALLBACK_ARTIST_NAMES = [
     'Maes', 'Ninho', 'SCH', 'Damso', 'Gazo', 'Tiakola',
@@ -79,7 +102,7 @@ class SpotifyApiError extends Error {
 }
 
 const isSpotifyErrorStatus = (error, statuses = []) => (
-    error instanceof SpotifyApiError && statuses.includes(error.status)
+    error instanceof SpotifyApiError && (statuses.includes(error.status) || error.status === 429)
 );
 
 const isRecoverableSpotifyLookupError = (error) => isSpotifyErrorStatus(error, [400, 403, 404]);
@@ -182,10 +205,11 @@ const pickBestArtistMatch = (query, artists = [], targetGenre = null) => {
 
 const buildFallbackArtist = (name, index = 0) => {
     const safeName = normalizeText(name);
+    const knownImage = FALLBACK_ARTIST_IMAGES[safeName.toLowerCase()];
     return {
         spotifyId: '',
         name: safeName,
-        imageUrl: DEFAULT_FALLBACK_IMAGES[index % DEFAULT_FALLBACK_IMAGES.length],
+        imageUrl: knownImage || DEFAULT_FALLBACK_IMAGES[index % DEFAULT_FALLBACK_IMAGES.length],
         spotifyUrl: '',
         genres: [],
         popularity: 0,
@@ -479,30 +503,67 @@ const buildTopTracksFromAlbums = async (artist, albumCandidates = [], { limit = 
     const normalizedArtist = normalizeArtistInput(artist);
     if (!normalizedArtist?.name || !Array.isArray(albumCandidates) || !albumCandidates.length) return [];
 
-    const uniqueAlbums = albumCandidates
+    // Prioritize main albums over singles, and singles over appears_on features
+    const sortedCandidates = [...albumCandidates].sort((a, b) => {
+        const groupA = normalizeText(a.group || a.type || 'album').toLowerCase();
+        const groupB = normalizeText(b.group || b.type || 'album').toLowerCase();
+
+        const typePriority = { 'album': 1, 'single': 2, 'appears_on': 3 };
+        const aPriority = typePriority[groupA] || 4;
+        const bPriority = typePriority[groupB] || 4;
+
+        if (aPriority !== bPriority) {
+            return aPriority - bPriority;
+        }
+        return (b.releaseDate || '').localeCompare(a.releaseDate || '');
+    });
+
+    const uniqueAlbums = sortedCandidates
         .filter((album, index, items) => {
             const currentId = normalizeText(album?.spotifyId || '');
             if (!currentId) return false;
             return items.findIndex((candidate) => normalizeText(candidate?.spotifyId || '') === currentId) === index;
         })
-        .slice(0, 6);
+        .slice(0, 20);
 
-    const albumResults = await Promise.allSettled(
-        uniqueAlbums.map((album) => getAlbum(album.spotifyId))
+    const loadedAlbums = await getAlbumsIndividually(
+        uniqueAlbums.map((album) => album.spotifyId),
+        { concurrency: 4 }
     );
 
-    const seen = new Set();
+    const albumsTracks = loadedAlbums.map((album) => (
+        (album.tracks || [])
+            .filter((track) => artistMatchesReference(track?.artists, normalizedArtist.spotifyId, normalizedArtist.name))
+    ));
 
-    return albumResults
-        .flatMap((result) => result.status === 'fulfilled' ? (result.value?.tracks || []) : [])
-        .filter((track) => artistMatchesReference(track?.artists, normalizedArtist.spotifyId, normalizedArtist.name))
-        .filter((track) => {
-            const identity = normalizeText(track?.spotifyId || `${track?.name || ''}:${track?.album?.spotifyId || ''}`);
-            if (!identity || seen.has(identity)) return false;
-            seen.add(identity);
-            return track.name;
-        })
-        .slice(0, Math.min(Math.max(limit, 1), 20));
+    const interleaved = [];
+    const seen = new Set();
+    let hasMore = true;
+    let trackIndex = 0;
+
+    while (hasMore && interleaved.length < Math.min(Math.max(limit, 1), 20)) {
+        hasMore = false;
+        for (const tracks of albumsTracks) {
+            if (trackIndex < tracks.length) {
+                hasMore = true;
+                const track = tracks[trackIndex];
+                const identity = normalizeText(track?.spotifyId || `${track?.name || ''}:${track?.album?.spotifyId || ''}`);
+                if (identity && !seen.has(identity)) {
+                    seen.add(identity);
+                    interleaved.push(track);
+                    if (interleaved.length >= limit) {
+                        break;
+                    }
+                }
+            }
+        }
+        if (interleaved.length >= limit) {
+            break;
+        }
+        trackIndex++;
+    }
+
+    return interleaved;
 };
 
 const hasSpotifyConfig = () => Boolean(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET);
@@ -763,10 +824,8 @@ const searchArtists = async (query, { limit = 8, exact = false } = {}) => {
         const artists = (data?.artists?.items || []).map(normalizeArtist);
         return artists.length > 0 ? artists : buildFallbackArtistMatches(normalizedQuery, limit);
     } catch (error) {
-        if (isSpotifyErrorStatus(error, [400, 401, 403, 404])) {
-            return buildFallbackArtistMatches(normalizedQuery, limit);
-        }
-        throw error;
+        console.warn(`[Spotify] Artist search failed for "${query}", using local fallback:`, error.message);
+        return buildFallbackArtistMatches(normalizedQuery, limit);
     }
 };
 
@@ -817,10 +876,8 @@ const searchAlbums = async (query, { limit = 8 } = {}) => {
         const albums = (data?.albums?.items || []).map(normalizeAlbum);
         return albums.length > 0 ? albums : buildFallbackAlbumMatches(normalizedQuery, limit);
     } catch (error) {
-        if (isSpotifyErrorStatus(error, [400, 401, 403, 404])) {
-            return buildFallbackAlbumMatches(normalizedQuery, limit);
-        }
-        throw error;
+        console.warn(`[Spotify] Album search failed for "${query}", using local fallback:`, error.message);
+        return buildFallbackAlbumMatches(normalizedQuery, limit);
     }
 };
 
@@ -887,7 +944,7 @@ const getArtistTopTracks = async (artistId, { artistName = '', albumCandidates =
     }
 };
 
-const getArtistAlbums = async (artistId, { includeGroups = 'album,single,appears_on', limit = 10, artistName = '' } = {}) => {
+const getArtistAlbums = async (artistId, { includeGroups = 'album,single,appears_on', limit = 50, artistName = '' } = {}) => {
     const normalizedId = normalizeText(artistId);
     if (!normalizedId) return [];
 
@@ -896,7 +953,7 @@ const getArtistAlbums = async (artistId, { includeGroups = 'album,single,appears
             params: {
                 market: SPOTIFY_MARKET,
                 include_groups: includeGroups,
-                limit: Math.min(Math.max(limit, 1), 10)
+                limit: Math.min(Math.max(limit, 1), 50)
             },
             cacheKey: `artist-albums:${normalizedId}:${includeGroups}:${limit}`
         });
@@ -1046,7 +1103,7 @@ const getAlbum = async (albumId) => {
         };
 
         if (data?.tracks?.items) {
-            album.tracks = data.tracks.items.map(normalizeTrack);
+            album.tracks = data.tracks.items.map((track) => normalizeTrack(track, data));
         }
 
         return album;
@@ -1055,6 +1112,73 @@ const getAlbum = async (albumId) => {
             return null;
         }
         throw error;
+    }
+};
+
+const getAlbumsIndividually = async (albumIds, { concurrency = 4 } = {}) => {
+    if (!Array.isArray(albumIds) || !albumIds.length) return [];
+
+    const validIds = albumIds
+        .map((id) => normalizeText(id))
+        .filter(isValidSpotifyId)
+        .slice(0, 20);
+    if (!validIds.length) return [];
+
+    const results = new Array(validIds.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(Math.max(Number(concurrency) || 1, 1), validIds.length);
+
+    const workers = Array.from({ length: workerCount }, async () => {
+        while (nextIndex < validIds.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            try {
+                results[index] = await getAlbum(validIds[index]);
+            } catch (error) {
+                console.warn(`Spotify album ${validIds[index]} could not be loaded:`, error.message);
+                results[index] = null;
+            }
+        }
+    });
+
+    await Promise.all(workers);
+    return results.filter(Boolean);
+};
+
+const getAlbums = async (albumIds) => {
+    if (!Array.isArray(albumIds) || !albumIds.length) return [];
+
+    const validIds = albumIds.map(id => normalizeText(id)).filter(isValidSpotifyId).slice(0, 20);
+    if (!validIds.length) return [];
+
+    try {
+        const data = await spotifyRequest('/albums', {
+            params: {
+                ids: validIds.join(','),
+                market: SPOTIFY_MARKET
+            },
+            cacheKey: `albums:${validIds.join(',')}`
+        });
+
+        return (data?.albums || []).map((albumData) => {
+            if (!albumData) return null;
+            const album = {
+                ...normalizeAlbum(albumData),
+                label: normalizeText(albumData?.label || ''),
+                genres: Array.isArray(albumData?.genres) ? albumData.genres.map(normalizeText).filter(Boolean).slice(0, 6) : [],
+                copyrights: Array.isArray(albumData?.copyrights)
+                    ? albumData.copyrights.map((copyrightItem) => normalizeText(copyrightItem?.text)).filter(Boolean)
+                    : []
+            };
+
+            if (albumData?.tracks?.items) {
+                album.tracks = albumData.tracks.items.map((track) => normalizeTrack(track, albumData));
+            }
+            return album;
+        }).filter(Boolean);
+    } catch (error) {
+        console.error('getAlbums error:', error);
+        return [];
     }
 };
 
@@ -1248,57 +1372,67 @@ const getArtistProfile = async (artistId, { name = '' } = {}) => {
         artist = buildFallbackArtist(normalizedName || normalizedId);
     }
 
-    if (!artist.spotifyId || !hasSpotifyConfig()) {
-        const fallbackAlbums = normalizedName
-            ? await searchAlbums(normalizedName, { limit: 10 })
+    try {
+        if (!artist.spotifyId || !hasSpotifyConfig()) {
+            throw new Error('Fallback required due to missing config or ID');
+        }
+
+        const discographyItems = await getArtistAlbums(artist.spotifyId, {
+            includeGroups: 'album,single,appears_on',
+            limit: 50,
+            artistName: artist.name
+        });
+
+        const [topTracksResult, relatedArtistsResult] = await Promise.allSettled([
+            getArtistTopTracks(artist.spotifyId, { artistName: artist.name, albumCandidates: discographyItems }),
+            getRelatedArtists(artist.spotifyId, artist)
+        ]);
+
+        const topTracks = topTracksResult.status === 'fulfilled' ? topTracksResult.value : [];
+        const relatedArtists = relatedArtistsResult.status === 'fulfilled'
+            ? relatedArtistsResult.value
             : [];
-        const relatedArtists = await getRelatedArtists('fallback', artist);
+
+        const mainReleases = discographyItems.filter((album) => album.group !== 'appears_on');
+        const albumReleases = mainReleases.filter((album) => album.group === 'album');
+        const singleReleases = mainReleases.filter((album) => album.group === 'single' || album.type === 'single');
+        const appearsOn = discographyItems.filter((album) => album.group === 'appears_on');
+
+        return {
+            artist,
+            topTracks: topTracks.slice(0, 10),
+            discography: {
+                popular: mainReleases.slice(0, 10),
+                albums: albumReleases.slice(0, 36),
+                singles: singleReleases.slice(0, 36)
+            },
+            appearsOn: appearsOn.slice(0, 20),
+            relatedArtists: relatedArtists.slice(0, 8)
+        };
+    } catch (err) {
+        console.warn(`[Spotify] Failed to load full profile for artist ${artist?.name || normalizedName || normalizedId}, falling back to local:`, err.message);
+
+        const fallbackAlbums = (artist?.name || normalizedName)
+            ? await searchAlbums(artist.name || normalizedName, { limit: 30 })
+            : [];
+
+        let relatedArtists = [];
+        try {
+            relatedArtists = await getRelatedArtists('fallback', artist);
+        } catch (e) {}
 
         return {
             artist,
             topTracks: [],
             discography: {
-                popular: fallbackAlbums.slice(0, 6),
-                albums: fallbackAlbums.slice(0, 6),
+                popular: fallbackAlbums.slice(0, 10),
+                albums: fallbackAlbums.slice(0, 24),
                 singles: []
             },
             appearsOn: [],
-            relatedArtists: []
+            relatedArtists: relatedArtists || []
         };
     }
-
-    const discographyItems = await getArtistAlbums(artist.spotifyId, {
-        includeGroups: 'album,single,appears_on',
-        limit: 10,
-        artistName: artist.name
-    });
-
-    const [topTracksResult, relatedArtistsResult] = await Promise.allSettled([
-        getArtistTopTracks(artist.spotifyId, { artistName: artist.name, albumCandidates: discographyItems }),
-        getRelatedArtists(artist.spotifyId, artist)
-    ]);
-
-    const topTracks = topTracksResult.status === 'fulfilled' ? topTracksResult.value : [];
-    const relatedArtists = relatedArtistsResult.status === 'fulfilled'
-        ? relatedArtistsResult.value
-        : [];
-
-    const mainReleases = discographyItems.filter((album) => album.group !== 'appears_on');
-    const albumReleases = mainReleases.filter((album) => album.group === 'album');
-    const singleReleases = mainReleases.filter((album) => album.group === 'single' || album.type === 'single');
-    const appearsOn = discographyItems.filter((album) => album.group === 'appears_on');
-
-    return {
-        artist,
-        topTracks: topTracks.slice(0, 10),
-        discography: {
-            popular: mainReleases.slice(0, 10),
-            albums: albumReleases.slice(0, 12),
-            singles: singleReleases.slice(0, 12)
-        },
-        appearsOn: appearsOn.slice(0, 10),
-        relatedArtists: relatedArtists.slice(0, 8)
-    };
 };
 
 const getFeaturedPlaylists = async ({ limit = 12, country = 'FR' } = {}) => {
@@ -1366,6 +1500,8 @@ module.exports = {
     getRecommendations,
     getTrack,
     getAlbum,
+    getAlbums,
+    getAlbumsIndividually,
     getPlaylist,
     getArtistById,
     getSpotifyAuthorizeUrl,

@@ -3,9 +3,25 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#08111f">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="NeonWave">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="application-name" content="NeonWave">
+    <meta name="format-detection" content="telephone=no">
     <title>NeonWave</title>
-    <link rel="stylesheet" href="css/style.css?v=20260608-studio">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+    <link rel="apple-touch-startup-image" href="/splash/splash-1290x2796.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)">
+    <link rel="apple-touch-startup-image" href="/splash/splash-1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)">
+    <link rel="apple-touch-startup-image" href="/splash/splash-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)">
+    <link rel="apple-touch-startup-image" href="/splash/splash-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
+    <link rel="apple-touch-startup-image" href="/splash/splash-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)">
+    <link rel="apple-touch-startup-image" href="/splash/splash-828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)">
+    <link rel="stylesheet" href="css/style.css?v=20260609-iphone-pwa">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
         rel="stylesheet">
 </head>
@@ -144,6 +160,24 @@
                             <div id="recentlyPlayedTracks" class="track-grid"></div>
                         </section>
 
+                        <section id="weeklyRecapSection" class="weekly-recap-section hidden">
+                            <article class="weekly-recap-card" onclick="Music.openWeeklyRecap()">
+                                <div class="weekly-recap-orbit weekly-recap-orbit-one"></div>
+                                <div class="weekly-recap-orbit weekly-recap-orbit-two"></div>
+                                <div class="weekly-recap-card-copy">
+                                    <span class="weekly-recap-kicker">Chaque lundi</span>
+                                    <h2>Ton bilan de la semaine est prêt.</h2>
+                                    <p id="weeklyRecapCardMeta">Quelques chiffres, un numéro un, et peut-être une surprise.</p>
+                                </div>
+                                <button type="button" class="weekly-recap-open-btn">
+                                    Révéler mon top
+                                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4">
+                                        <path d="M5 12h14"></path>
+                                        <path d="m13 6 6 6-6 6"></path>
+                                    </svg>
+                                </button>
+                            </article>
+                        </section>
 
                         <h2 id="homeSectionTitle" class="section-title">Conçu spécialement pour vous</h2>
                         <div id="popularTracks" class="track-grid"></div>
@@ -234,7 +268,7 @@
                     <div id="playlistView" class="hidden">
                         <section class="playlist-hero">
                             <div class="playlist-hero-art">
-                                <span>NW</span>
+                                <img src="nw.png" alt="NW" class="recap-fallback-logo">
                                 <div class="playlist-hero-glow"></div>
                             </div>
                             <div class="playlist-hero-copy">
@@ -534,13 +568,15 @@
     <div id="localImportStatus" class="local-import-status"></div>
 
     <script src="js/auth.js?v=20260406-recovery-fix"></script>
-    <script src="js/video-player.js?v=20260406-recovery-fix"></script>
-    <script src="js/player.js?v=20260608-studio"></script>
+    <script src="js/changelog.js?v=20260609-1415"></script>
+    <script src="js/video-player.js?v=20260609-canvas"></script>
+    <script src="js/player.js?v=20260609-iphone-pwa"></script>
     <script src="js/playlists.js?v=20260608-studio"></script>
-    <script src="js/music.js?v=20260608-studio"></script>
+    <script src="js/music.js?v=20260609-album-direct"></script>
     <script src="js/onboarding.js?v=20260406-recovery-fix"></script>
-    <script src="js/settings.js?v=20260406-recovery-fix"></script>
+    <script src="js/settings.js?v=20260609-recaptest"></script>
     <script src="js/ux-extras.js?v=20260406-premium"></script>
+    <script src="js/pwa.js?v=20260609-iphone-pwa"></script>
 
     <!-- Create Playlist Modal -->
     <div id="createPlaylistModal" class="modal-overlay" onclick="if(event.target===this)Playlists.closeCreateModal()"
@@ -587,6 +623,16 @@
                     <input type="text" id="settingsEmail" class="neon-input" readonly style="opacity:0.6;">
                 </div>
             </form>
+            <div class="profile-recap-panel">
+                <div>
+                    <span class="profile-recap-kicker">Nouveau</span>
+                    <strong>Artiste de la semaine</strong>
+                    <p>Teste le reveal du top artiste, comme il sortira chaque lundi.</p>
+                </div>
+                <button type="button" onclick="Settings.openWeeklyRecapTest()" class="profile-recap-test-btn">
+                    Tester le reveal
+                </button>
+            </div>
             <button onclick="Auth.logout()" class="btn-glow" style="width:100%;margin-top:16px;">Déconnexion</button>
         </div>
     </div>
@@ -810,33 +856,71 @@
         </div>
     </div>
 
-    <!-- ═══ Auto-Updater Banner ═══ -->
-    <div id="updaterBanner" class="updater-banner hidden">
-        <div class="updater-icon-container">
-            <svg id="updaterLoadingIcon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" class="rotating-icon">
-                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-            </svg>
-            <svg id="updaterSuccessIcon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" class="hidden-icon hidden">
-                <polyline points="20 6 9 17 4 12" />
-            </svg>
-            <svg id="updaterErrorIcon" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.5" fill="none" class="hidden-icon hidden">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
+    <!-- ═══ Auto-Updater Fullscreen Overlay ═══ -->
+    <div id="updaterOverlay" class="updater-overlay hidden">
+        <div class="updater-overlay-bg"></div>
+        <div class="updater-overlay-content">
+            <div class="updater-logo-wrap">
+                <img src="nw.png" alt="NeonWave Logo" class="updater-logo-img">
+                <div class="updater-logo-glow"></div>
+            </div>
+
+            <h1 class="updater-overlay-title">Mise à jour requise</h1>
+            <p id="updaterMessage" class="updater-overlay-message">Recherche de mises à jour...</p>
+
+            <!-- Notes de version -->
+            <div id="updaterNotesContainer" class="updater-notes-container hidden">
+                <div class="updater-notes-title">Notes de mise à jour :</div>
+                <div id="updaterNotesContent" class="updater-notes-content"></div>
+            </div>
+
+            <div class="updater-circle-wrap">
+                <div id="updaterLoaderRing" class="updater-loader-ring">
+                    <svg viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="40" class="ring-track" />
+                        <circle cx="50" cy="50" r="40" id="spinnerProgress" class="ring-progress" stroke-dasharray="251.2" stroke-dashoffset="251.2" />
+                    </svg>
+                    <span id="updaterPercent" class="ring-text">0%</span>
+                </div>
+            </div>
+
+            <button id="updaterBtn" class="updater-install-btn hidden" onclick="window.NeonWaveDesktop.installUpdate()">
+                Mettre à jour et Relancer
+            </button>
         </div>
-        <div class="updater-text-container">
-            <span class="updater-title">Mise à jour NeonWave</span>
-            <span id="updaterMessage" class="updater-message">Vérification des mises à jour...</span>
-        </div>
-        <div class="updater-actions-container">
-            <button id="updaterBtn" class="updater-btn hidden" onclick="window.NeonWaveDesktop.installUpdate()">Mettre à jour NeonWave</button>
-            <button id="updaterCloseBtn" class="updater-close-btn" onclick="document.getElementById('updaterBanner').classList.add('hidden')" title="Fermer">
-                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
+    </div>
+
+    <div id="weeklyRecapModal" class="weekly-recap-modal hidden" onclick="if(event.target===this)Music.closeWeeklyRecap()">
+        <div id="weeklyRecapDialog" class="weekly-recap-dialog">
+            <button type="button" class="weekly-recap-close" onclick="Music.closeWeeklyRecap()" title="Fermer">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6 6 18"></path>
+                    <path d="m6 6 12 12"></path>
                 </svg>
             </button>
+            <div id="weeklyRecapContent"></div>
+        </div>
+    </div>
+
+    <!-- ═══ Modal Nouveautés (Changelog) ═══ -->
+    <div id="changelogModal" class="changelog-modal hidden" onclick="if(event.target===this)Player.closeChangelog()">
+        <div class="changelog-dialog">
+            <div class="changelog-header">
+                <div class="changelog-icon-wrap">
+                    <img src="nw.png" alt="NeonWave Logo" class="changelog-logo">
+                    <div class="changelog-badge">Nouveau</div>
+                </div>
+                <h2 class="changelog-title">Mise à jour installée !</h2>
+                <p class="changelog-subtitle">Découvre les nouveautés de la version <span id="changelogVersion">1.4.1</span></p>
+            </div>
+            <div class="changelog-body">
+                <ul id="changelogList" class="changelog-list">
+                    <!-- Les nouveautés seront injectées ici -->
+                </ul>
+            </div>
+            <div class="changelog-footer">
+                <button class="changelog-btn" onclick="Player.closeChangelog()">Super, merci !</button>
+            </div>
         </div>
     </div>
 

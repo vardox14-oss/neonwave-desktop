@@ -397,7 +397,7 @@ const Playlists = {
                     <article class="track-row local-track-row" onclick="Music.playContext('${favorites.id}', ${index})">
                         <div class="track-row-index">${index + 1}</div>
                         <div class="track-row-main">
-                            <div class="track-row-thumb local-track-art">NW</div>
+                            <div class="track-row-thumb local-track-art"><img src="nw.png" alt="NW"></div>
                             <div class="track-row-copy">
                                 <div class="track-row-title">${Music.escapeHtml(track.title)}</div>
                                 <div class="track-row-meta">${Music.escapeHtml(track.artist)} - Fichier local</div>
@@ -582,7 +582,7 @@ const Playlists = {
                     </div>
                 </div>
                 <div class="library-item local-library-entry" onclick="Playlists.showLocalTracksView();">
-                    <div class="img-box local-library-icon">NW</div>
+                    <div class="img-box local-library-icon"><img src="nw.png" alt="NW"></div>
                     <div class="info">
                         <div class="title">Sons perso</div>
                         <div class="subtitle">Fichiers locaux - ${this.localTracks.length} titre${this.localTracks.length !== 1 ? 's' : ''}</div>
@@ -816,7 +816,7 @@ const Playlists = {
                             <article class="playlist-track-row" onclick="Music.playContext('${container.id}', ${index})">
                                 <div class="playlist-drag-handle" title="Ordre">${String(index + 1).padStart(2, '0')}</div>
                                 <div class="playlist-track-art ${track.source === 'local' ? 'is-local' : ''}">
-                                    ${track.thumb ? `<img src="${Music.escapeHtml(track.thumb)}" alt="">` : '<span>NW</span>'}
+                                    ${track.thumb ? `<img src="${Music.escapeHtml(track.thumb)}" alt="">` : '<img src="nw.png" alt="NW" class="recap-fallback-logo">'}
                                 </div>
                                 <div class="playlist-track-copy">
                                     <strong>${Music.escapeHtml(track.title)}</strong>
@@ -869,7 +869,7 @@ const Playlists = {
 
         html += `
             <div class="lib-row-item local-library-card" onclick="Playlists.showLocalTracksView();">
-                <div class="lib-row-img local-library-icon">NW</div>
+                <div class="lib-row-img local-library-icon"><img src="nw.png" alt="NW"></div>
                 <div class="lib-row-info">
                     <div class="lib-row-title">Sons perso</div>
                     <div class="lib-row-meta">Collection locale - ${this.localTracks.length} titre${this.localTracks.length !== 1 ? 's' : ''}</div>
