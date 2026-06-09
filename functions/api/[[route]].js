@@ -155,7 +155,7 @@ const checkIPAndAuth = async (c, next) => {
         c.set('user', user);
         await next();
     } catch (err) {
-        return c.json({ error: 'Session invalide ou expirée' }, 401);
+        return c.json({ error: 'Session invalide ou expirée', details: err.message, stack: err.stack }, 401);
     }
 };
 
