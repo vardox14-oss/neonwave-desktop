@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { handle } from 'hono/cloudflare-pages';
 import { sign, verify } from 'hono/jwt';
+import { getCookie, setCookie } from 'hono/cookie';
 import bcrypt from 'bcryptjs';
 
 const app = new Hono().basePath('/api');
@@ -131,7 +132,7 @@ const checkIPAndAuth = async (c, next) => {
     }
 
     const authHeader = c.req.header('Authorization');
-    const cookieToken = c.req.cookie ? c.req.cookie('token') : null;
+    const cookieToken = getCookie(c, 'token');
     const token = cookieToken || (authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null);
 
     if (!token) {
@@ -208,7 +209,24 @@ app.post('/setup/owner', async (c) => {
         await saveUser(db, owner);
         await setSetupCompleted(db, true);
 
-        return c.json({ success: true, message: 'Compte propriétaire configuré.' });
+        const secret = c.env.JWT_SECRET || JWT_SECRET;
+        const token = await sign({ id: owner.id, email: owner.email, role: owner.role }, secret);
+        setCookie(c, 'token', token, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'Lax',
+            maxAge: 30 * 24 * 60 * 60
+        });
+
+        return c.json({
+            token,
+            user: {
+                id: owner.id,
+                username: owner.username,
+                email: owner.email,
+                role: owner.role
+            }
+        });
     } catch (err) {
         return c.json({ error: err.message }, 500);
     }
@@ -246,7 +264,25 @@ app.post('/auth/register', async (c) => {
     };
 
     await saveUser(db, user);
-    return c.json({ success: true, message: 'Inscription réussie.' });
+
+    const secret = c.env.JWT_SECRET || JWT_SECRET;
+    const token = await sign({ id: user.id, email: user.email, role: user.role }, secret);
+    setCookie(c, 'token', token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+        maxAge: 7 * 24 * 60 * 60
+    });
+
+    return c.json({
+        token,
+        user: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role
+        }
+    });
 });
 
 app.post('/auth/login', async (c) => {
@@ -273,6 +309,13 @@ app.post('/auth/login', async (c) => {
     const secret = c.env.JWT_SECRET || JWT_SECRET;
     const expiresIn = rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
     const token = await sign({ id: user.id, email: user.email, role: user.role }, secret);
+
+    setCookie(c, 'token', token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+        maxAge: expiresIn
+    });
 
     return c.json({
         token,
