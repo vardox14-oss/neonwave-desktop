@@ -12,6 +12,3 @@ binding = "DB"
 database_name = "neonwave-db"
 database_id = "3d4aaec5-7fa6-4e3b-93f2-16227a708dc1"
 
-[[r2_buckets]]
-binding = "BUCKET"
-bucket_name = "neonwave-tracks"
