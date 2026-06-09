@@ -10,7 +10,7 @@ SPOTIFY_MARKET = "FR"
 [[d1_databases]]
 binding = "DB"
 database_name = "neonwave-db"
-database_id = "d0cb3745-ba7e-4001-9c60-a29cf9a3e215" # ID fictif pour la liaison
+database_id = "3d4aaec5-7fa6-4e3b-93f2-16227a708dc1"
 
 [[r2_buckets]]
 binding = "BUCKET"
