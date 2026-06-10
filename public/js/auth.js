@@ -88,11 +88,20 @@ const Auth = {
         try {
             const headers = Auth.getAuthHeaders();
             const response = await fetch('/api/auth/me', { headers });
-            if (!response.ok) throw new Error();
+            if (!response.ok) {
+                const errText = await response.text().catch(() => '');
+                localStorage.setItem('last_auth_error', JSON.stringify({
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: errText
+                }));
+                throw new Error(`Auth verification failed with status ${response.status}: ${errText}`);
+            }
             const data = await response.json();
             localStorage.setItem('user', JSON.stringify(data.user));
             return true;
         } catch (err) {
+            console.error('checkAuth error:', err);
             localStorage.removeItem('user');
             localStorage.removeItem('token');
             if (!window.location.pathname.includes('login')) {
