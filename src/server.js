@@ -9,6 +9,7 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
+const ytdl = require('@distube/ytdl-core');
 const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
@@ -3385,44 +3386,19 @@ app.get('/api/music/streams/:id', authenticate, async (req, res) => {
     const p = db.users.map(u => u.history).flat().find(h => h?.videoId === videoId);
     if (p) trackUserHistory(req.user.id, p);
 
+    // Fetch the stream URL from the VPS proxy server-side
     try {
-        const instancesRes = await fetch('https://api.invidious.io/instances.json?sort_by=health');
-        if (instancesRes.ok) {
-            const instances = await instancesRes.json();
-            const urls = instances
-                .filter(i => i[1].api === true && i[1].type === 'https' && i[1].cors === true)
-                .map(i => i[1].uri);
-            
-            for (const url of urls.slice(0, 5)) {
-                try {
-                    const testRes = await fetch(`${url}/api/v1/videos/${videoId}`);
-                    if (testRes.ok) {
-                        const data = await testRes.json();
-                        if (data.adaptiveFormats && data.adaptiveFormats.length > 0) {
-                            const audio = data.adaptiveFormats.find(f => f.type.startsWith('audio/mp4')) || data.adaptiveFormats.find(f => f.type.startsWith('audio'));
-                            if (audio && audio.url) {
-                                return res.redirect(307, audio.url);
-                            }
-                        }
-                    }
-                } catch (e) {}
-            }
+        const proxyUrl = `http://80.241.223.11:4000/api/stream/${videoId}`;
+        const proxyRes = await fetch(proxyUrl, { redirect: 'manual' });
+        
+        const location = proxyRes.headers.get('location');
+        if (location) {
+            return res.redirect(307, location);
         }
     } catch (err) {
-        console.error('Invidious fetch error:', err);
+        console.error('VPS proxy error:', err);
     }
     
-    try {
-        const testRes = await fetch(`https://inv.thepixora.com/api/v1/videos/${videoId}`);
-        if (testRes.ok) {
-            const data = await testRes.json();
-            if (data.adaptiveFormats) {
-                const audio = data.adaptiveFormats.find(f => f.type.startsWith('audio/mp4')) || data.adaptiveFormats.find(f => f.type.startsWith('audio'));
-                if (audio && audio.url) return res.redirect(307, audio.url);
-            }
-        }
-    } catch (e) {}
-
     res.status(404).json({ error: 'Aucun flux audio disponible.' });
 });
 
