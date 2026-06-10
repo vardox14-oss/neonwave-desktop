@@ -1102,7 +1102,7 @@ app.get('/user/history', checkIPAndAuth, async (c) => {
 });
 
 app.get('/spotify/artist-profile', checkIPAndAuth, async (c) => {
-    const spotifyId = (c.req.query('spotifyId') || '').trim();
+    let spotifyId = (c.req.query('spotifyId') || '').trim();
     const name = (c.req.query('name') || '').trim();
     const env = c.env;
     const token = await getSpotifyToken(env);
@@ -1113,6 +1113,18 @@ app.get('/spotify/artist-profile', checkIPAndAuth, async (c) => {
     let discography = { popular: [], albums: [], singles: [] };
     let relatedArtists = [];
     let appearsOn = [];
+    
+    // If spotify is enabled but we don't have a spotifyId, try to search for the artist by name first
+    if (spotifyEnabled && (!spotifyId || spotifyId === 'fallback') && name) {
+        try {
+            const searchResults = await searchSpotifyArtists(env, token, name, 1);
+            if (searchResults.length > 0) {
+                spotifyId = searchResults[0].spotifyId;
+            }
+        } catch (err) {
+            console.error('Failed to search Spotify artist by name:', err);
+        }
+    }
     
     if (spotifyEnabled && spotifyId && spotifyId !== 'fallback') {
         try {
@@ -1196,7 +1208,9 @@ app.get('/spotify/artist-profile', checkIPAndAuth, async (c) => {
     
     if (!artist && name) {
         try {
-            const deezerSearchRes = await fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(name)}`);
+            const deezerSearchRes = await fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(name)}`, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+            });
             if (deezerSearchRes.ok) {
                 const deezerSearchData = await deezerSearchRes.json();
                 const firstArtist = deezerSearchData?.data?.[0];
@@ -1212,7 +1226,9 @@ app.get('/spotify/artist-profile', checkIPAndAuth, async (c) => {
                         source: 'deezer'
                     };
                     
-                    const topRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/top?limit=10`);
+                    const topRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/top?limit=10`, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+                    });
                     if (topRes.ok) {
                         const topData = await topRes.json();
                         topTracks = (topData.data || []).map(item => ({
@@ -1227,7 +1243,9 @@ app.get('/spotify/artist-profile', checkIPAndAuth, async (c) => {
                         }));
                     }
                     
-                    const albumsRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/albums?limit=30`);
+                    const albumsRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/albums?limit=30`, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+                    });
                     if (albumsRes.ok) {
                         const albumsData = await albumsRes.json();
                         const items = (albumsData.data || []).map(album => ({
