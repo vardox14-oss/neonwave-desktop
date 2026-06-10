@@ -385,7 +385,7 @@ const Music = {
             <div class="weekly-recap-track-row">
                 <span class="weekly-recap-rank">${track.rank}</span>
                 <span class="weekly-recap-rank-thumb">
-                    ${track.thumb ? `<img src="${this.escapeHtml(track.thumb)}" alt="" loading="lazy" onerror="Music.handleRecapImageError(this)">` : '<img src="nw.png" alt="NW" class="recap-fallback-logo">'}
+                    ${(track.thumb || track.thumbnail) ? `<img src="${this.escapeHtml((track.thumb || track.thumbnail))}" alt="" loading="lazy" onerror="Music.handleRecapImageError(this)">` : '<img src="nw.png" alt="NW" class="recap-fallback-logo">'}
                 </span>
                 <span class="weekly-recap-rank-copy">
                     <strong>${this.escapeHtml(track.title || 'Sans titre')}</strong>
@@ -950,7 +950,7 @@ const Music = {
             id: track.videoId,
             title: track.title || track.name || 'Sans titre',
             artist: track.artist || track.uploaderName || 'Artiste inconnu',
-            thumb: track.thumbnail || this.currentArtistProfile?.artist?.imageUrl || ''
+            thumb: (track.thumb || track.thumbnail)nail || this.currentArtistProfile?.artist?.imageUrl || ''
         }));
         Player.renderQueue();
         Player.playFromQueue(Math.min(startIndex, Math.max(playableTracks.length - 1, 0)));
@@ -1355,7 +1355,7 @@ const Music = {
             const isLocalSource = track.source === 'local' || String(playbackId).startsWith('local-');
             const rawTitle = track.title || track.name || 'Sans titre';
             const rawArtist = this.getTrackArtistLabel(track);
-            const thumb = track.thumbnail || track.thumb || track.imageUrl || (isLocalSource
+            const thumb = (track.thumb || track.thumbnail)nail || (track.thumb || track.thumbnail) || track.imageUrl || (isLocalSource
                 ? ''
                 : videoId
                 ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
@@ -1436,13 +1436,13 @@ const Music = {
     toggleFavoriteFromContext(containerId, index) {
         const track = this.getContextTrack(containerId, index);
         if (!track) return;
-        this.toggleFavorite(track.id, track.title, track.artist, track.thumb, track.spotifyId || '');
+        this.toggleFavorite(track.id, track.title, track.artist, (track.thumb || track.thumbnail), track.spotifyId || '');
     },
 
     showContextMenuFromContext(event, containerId, index) {
         const track = this.getContextTrack(containerId, index);
         if (!track) return;
-        this.showContextMenu(event, track.id, track.title, track.artist, track.thumb, track.spotifyId || '', track);
+        this.showContextMenu(event, track.id, track.title, track.artist, (track.thumb || track.thumbnail), track.spotifyId || '', track);
     },
 
     skeletonRows(count) {
@@ -1903,7 +1903,7 @@ const Music = {
             spotifyId: this.normalizeTrackKey(track.spotifyId || (this.isSpotifyTrackId(track.id) ? track.id : '')),
             title: track.name || track.title || 'Sans titre',
             artist: this.getTrackArtistLabel(track),
-            thumb: track.thumbnail || track.thumb || track.imageUrl || this.currentAlbum.imageUrl || '',
+            thumb: (track.thumb || track.thumbnail)nail || (track.thumb || track.thumbnail) || track.imageUrl || this.currentAlbum.imageUrl || '',
             searchQuery: [this.getTrackArtistLabel(track), track.name || track.title || 'Sans titre', 'audio'].filter(Boolean).join(' '),
             original: track
         }));
@@ -2096,7 +2096,7 @@ const Music = {
                      onclick="Music.playContext('${container.id}', ${index})"
                      oncontextmenu="Music.showContextMenuFromContext(event, '${container.id}', ${index})">
                     <div class="thumb">
-                        <img src="${this.escapeHtml(track.thumb)}" alt="${this.escapeHtml(track.title)}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop'">
+                        <img src="${this.escapeHtml((track.thumb || track.thumbnail))}" alt="${this.escapeHtml(track.title)}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop'">
                         <button class="track-favorite-btn fav-toggle-btn fav-btn-${this.escapeHtml(track.id)} ${isFav ? 'active' : ''}"
                             onclick="event.stopPropagation(); Music.toggleFavoriteFromContext('${container.id}', ${index})"
                             title="${isFav ? 'Retirer des likes' : 'Liker'}"
@@ -2139,7 +2139,7 @@ const Music = {
                             <div class="track-row-index">${index + 1}</div>
                             <div class="track-row-main">
                                 <div class="track-row-thumb">
-                                    <img src="${this.escapeHtml(track.thumb)}" alt="${this.escapeHtml(track.title)}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop'">
+                                    <img src="${this.escapeHtml((track.thumb || track.thumbnail))}" alt="${this.escapeHtml(track.title)}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=500&auto=format&fit=crop'">
                                 </div>
                                 <div class="track-row-copy">
                                     <div class="track-row-title">${this.escapeHtml(track.title)}</div>

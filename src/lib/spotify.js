@@ -1379,7 +1379,7 @@ const getArtistProfile = async (artistId, { name = '' } = {}) => {
 
         const discographyItems = await getArtistAlbums(artist.spotifyId, {
             includeGroups: 'album,single,appears_on',
-            limit: 50,
+            limit: 20,
             artistName: artist.name
         });
 

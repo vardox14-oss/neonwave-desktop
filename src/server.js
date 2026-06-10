@@ -3386,70 +3386,44 @@ app.get('/api/music/streams/:id', authenticate, async (req, res) => {
     if (p) trackUserHistory(req.user.id, p);
 
     try {
-        let audioUrl = '';
-        const cached = streamUrlCache.get(videoId);
-        if (cached && cached.expires > Date.now()) {
-            audioUrl = cached.url;
-            console.log(`💾 Serving cached stream URL for: ${videoId}`);
-        } else {
-            console.log(`🎬 Resolving YouTube stream via Piped API for: ${videoId}`);
-            audioUrl = await resolvePipedStreamUrl(videoId);
-
-            if (!audioUrl) {
-                console.log(`🎬 Piped resolution failed. Falling back to local yt-dlp for: ${videoId}`);
-                audioUrl = await new Promise((resolve, reject) => {
-                    const { exec } = require('child_process');
-                    exec(`python -m yt_dlp -g -f bestaudio "${videoId}"`, (err, stdout, stderr) => {
-                        if (err) {
-                            return reject(new Error(stderr || err.message));
+        const instancesRes = await fetch('https://api.invidious.io/instances.json?sort_by=health');
+        if (instancesRes.ok) {
+            const instances = await instancesRes.json();
+            const urls = instances
+                .filter(i => i[1].api === true && i[1].type === 'https' && i[1].cors === true)
+                .map(i => i[1].uri);
+            
+            for (const url of urls.slice(0, 5)) {
+                try {
+                    const testRes = await fetch(`${url}/api/v1/videos/${videoId}`);
+                    if (testRes.ok) {
+                        const data = await testRes.json();
+                        if (data.adaptiveFormats && data.adaptiveFormats.length > 0) {
+                            const audio = data.adaptiveFormats.find(f => f.type.startsWith('audio/mp4')) || data.adaptiveFormats.find(f => f.type.startsWith('audio'));
+                            if (audio && audio.url) {
+                                return res.redirect(307, audio.url);
+                            }
                         }
-                        resolve(stdout.trim());
-                    });
-                });
+                    }
+                } catch (e) {}
             }
-
-            let expires = Date.now() + 3600000;
-            try {
-                const urlObj = new URL(audioUrl);
-                const expireParam = urlObj.searchParams.get('expire');
-                if (expireParam) {
-                    expires = (parseInt(expireParam, 10) * 1000) - 60000;
-                }
-            } catch (err) {
-                console.warn('Could not parse stream URL expiration:', err.message);
-            }
-
-            streamUrlCache.set(videoId, { url: audioUrl, expires });
-            console.log(`✅ YouTube stream extracted and cached (expires in ${Math.round((expires - Date.now()) / 1000)}s)`);
         }
-
-        // Set up headers to forward range request
-        const headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        };
-        if (req.headers.range) {
-            headers['Range'] = req.headers.range;
-            console.log(`⏩ Forwarding Range request: ${req.headers.range}`);
-        }
-
-        const proxyReq = https.get(audioUrl, { headers }, (proxyRes) => {
-            res.status(proxyRes.statusCode);
-            if (proxyRes.headers['content-type']) res.setHeader('Content-Type', proxyRes.headers['content-type']);
-            if (proxyRes.headers['content-length']) res.setHeader('Content-Length', proxyRes.headers['content-length']);
-            if (proxyRes.headers['content-range']) res.setHeader('Content-Range', proxyRes.headers['content-range']);
-            if (proxyRes.headers['accept-ranges']) res.setHeader('Accept-Ranges', proxyRes.headers['accept-ranges']);
-            proxyRes.pipe(res);
-        });
-
-        proxyReq.on('error', (err) => {
-            console.error('Proxy request error:', err);
-            if (!res.headersSent) res.status(500).send('Stream proxy failed');
-        });
-
     } catch (err) {
-        console.error('YouTube stream resolve failed:', err.message);
-        if (!res.headersSent) res.status(500).json({ error: 'Stream error - ' + err.message });
+        console.error('Invidious fetch error:', err);
     }
+    
+    try {
+        const testRes = await fetch(`https://inv.thepixora.com/api/v1/videos/${videoId}`);
+        if (testRes.ok) {
+            const data = await testRes.json();
+            if (data.adaptiveFormats) {
+                const audio = data.adaptiveFormats.find(f => f.type.startsWith('audio/mp4')) || data.adaptiveFormats.find(f => f.type.startsWith('audio'));
+                if (audio && audio.url) return res.redirect(307, audio.url);
+            }
+        }
+    } catch (e) {}
+
+    res.status(404).json({ error: 'Aucun flux audio disponible.' });
 });
 
 // ═══════════════════════════════════════════════════════════════
