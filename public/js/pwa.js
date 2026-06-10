@@ -133,19 +133,14 @@
         }
     };
 
-    const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-    silentAudio.loop = true;
-
     const setPlaybackState = (state) => {
         if ('mediaSession' in navigator) {
             navigator.mediaSession.playbackState = state;
         }
         if (state === 'playing') {
             requestPlaybackWakeLock();
-            if (isIOS) silentAudio.play().catch(() => {});
         } else {
             releasePlaybackWakeLock();
-            if (isIOS) silentAudio.pause();
         }
     };
 

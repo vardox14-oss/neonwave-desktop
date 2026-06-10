@@ -3916,7 +3916,7 @@ input[type="range"]::-webkit-slider-thumb {
     /* 🔈 Mini Player Transformation */
     .player-footer {
         position: fixed;
-        bottom: 78px;
+        bottom: calc(78px + env(safe-area-inset-bottom));
         left: 8px;
         right: 8px;
         height: 58px !important;

@@ -299,8 +299,6 @@ const Player = {
 
         const audio = new Audio();
         audio.preload = 'auto';
-        audio.setAttribute('playsinline', '');
-        audio.setAttribute('webkit-playsinline', '');
         audio.volume = this.normalizeVolume(this.volume) / 100;
         audio.addEventListener('playing', () => {
             if (this.activeEngine === 'local') this.setPlaying(true);
@@ -980,9 +978,6 @@ const Player = {
 
         // Update document title
         document.title = `${track.title} — NeonWave`;
-        if (window.NWPWA && typeof window.NWPWA.updateMediaSession === 'function') {
-            window.NWPWA.updateMediaSession(track);
-        }
         this.loadLyricsForTrack(track);
 
         // Highlight active queue item
@@ -1452,9 +1447,6 @@ const Player = {
         if (mpPauseIcon) mpPauseIcon.style.display = playing ? 'block' : 'none';
 
         playing ? this.startProgressTracking() : this.stopProgressTracking();
-        if (window.NWPWA && typeof window.NWPWA.setPlaybackState === 'function') {
-            window.NWPWA.setPlaybackState(playing ? 'playing' : 'paused');
-        }
 
         // Sync video (non-blocking)
         try {
@@ -1804,9 +1796,6 @@ const Player = {
                 if (mpCurText) mpCurText.textContent = formattedTime;
                 if (durText) durText.textContent = formattedFull;
                 if (mpDurText) mpDurText.textContent = formattedFull;
-                if (window.NWPWA && typeof window.NWPWA.setPositionState === 'function') {
-                    window.NWPWA.setPositionState(currentTime, duration);
-                }
 
                 // Update Remaining Time
                 const remainingEl = document.getElementById('timeRemaining');
@@ -1857,56 +1846,6 @@ const Player = {
         this.loadRecentlyPlayed();
         this.resumePlaybackState();
         this.updateRepeatUi();
-        if (window.NWPWA && typeof window.NWPWA.bindMediaActions === 'function') {
-            window.NWPWA.bindMediaActions();
-        }
-
-        // Check for updates features popup (first start)
-        setTimeout(() => this.checkChangelog(), 800);
-    },
-
-    async checkChangelog() {
-        if (!window.NeonWaveDesktop || typeof window.NeonWaveDesktop.getVersion !== 'function') return;
-        try {
-            const currentVersion = await window.NeonWaveDesktop.getVersion();
-            const lastSeenVersion = localStorage.getItem('nw_last_seen_version');
-
-            if (currentVersion && currentVersion !== lastSeenVersion) {
-                const entries = typeof Changelogs !== 'undefined' ? Changelogs[currentVersion] : null;
-                if (entries && Array.isArray(entries)) {
-                    const modal = document.getElementById('changelogModal');
-                    const versionEl = document.getElementById('changelogVersion');
-                    const listEl = document.getElementById('changelogList');
-
-                    if (modal && listEl) {
-                        if (versionEl) versionEl.textContent = currentVersion;
-                        listEl.innerHTML = entries.map(entry => `<li class="changelog-item">${entry}</li>`).join('');
-                        modal.classList.remove('hidden');
-                    }
-                } else {
-                    localStorage.setItem('nw_last_seen_version', currentVersion);
-                }
-            }
-        } catch (err) {
-            console.error('Failed to check changelog:', err);
-        }
-    },
-
-    async closeChangelog() {
-        const modal = document.getElementById('changelogModal');
-        if (modal) {
-            modal.classList.add('hidden');
-        }
-        if (window.NeonWaveDesktop && typeof window.NeonWaveDesktop.getVersion === 'function') {
-            try {
-                const currentVersion = await window.NeonWaveDesktop.getVersion();
-                if (currentVersion) {
-                    localStorage.setItem('nw_last_seen_version', currentVersion);
-                }
-            } catch (err) {
-                console.error('Failed to save last seen version:', err);
-            }
-        }
     },
 
     formatTime(seconds) {
@@ -1916,21 +1855,19 @@ const Player = {
     }
 };
 
-// --- Mock YouTube IFrame API via HTML5 Audio (Guarded Fallback) ---
-if (!window.YT) {
-    window.YT = {
-        PlayerState: {
-            UNSTARTED: -1,
-            ENDED: 0,
-            PLAYING: 1,
-            PAUSED: 2,
-            BUFFERING: 3,
-            CUED: 5
-        }
-    };
-}
+// --- Mock YouTube IFrame API via HTML5 Audio ---
+window.YT = {
+    PlayerState: {
+        UNSTARTED: -1,
+        ENDED: 0,
+        PLAYING: 1,
+        PAUSED: 2,
+        BUFFERING: 3,
+        CUED: 5
+    }
+};
 
-class MockYTPlayer {
+window.YT.Player = class MockYTPlayer {
     constructor(elementId, config = {}) {
         this.config = config;
         this.events = config.events || {};
@@ -1938,146 +1875,155 @@ class MockYTPlayer {
         this.volume = 100;
         this.muted = false;
         this.readyTriggered = false;
-        this._duration = 0;
-        this._currentTime = 0;
-        this._playerState = -1;
-        this._playbackRate = 1;
-        this._timeUpdateInterval = null;
+        
+        // Create audio element
+        this.audio = new Audio();
+        this.audio.preload = 'auto';
+        
+        // Set up event mapping
+        this.audio.addEventListener('canplay', () => {
+            if (!this.readyTriggered) {
+                this.readyTriggered = true;
+                if (this.events.onReady) this.events.onReady();
+            }
+        });
+        
+        this.audio.addEventListener('play', () => {
+            if (this.events.onStateChange) {
+                this.events.onStateChange({ data: window.YT.PlayerState.PLAYING });
+            }
+        });
+        
+        this.audio.addEventListener('playing', () => {
+            if (this.events.onStateChange) {
+                this.events.onStateChange({ data: window.YT.PlayerState.PLAYING });
+            }
+        });
+        
+        this.audio.addEventListener('pause', () => {
+            if (this.events.onStateChange) {
+                this.events.onStateChange({ data: window.YT.PlayerState.PAUSED });
+            }
+        });
+        
+        this.audio.addEventListener('ended', () => {
+            if (this.events.onStateChange) {
+                this.events.onStateChange({ data: window.YT.PlayerState.ENDED });
+            }
+        });
+        
+        this.audio.addEventListener('error', (e) => {
+            console.error('Audio element error:', e);
+            if (this.events.onError) {
+                this.events.onError({ data: 1 }); // generic error code
+            }
+        });
 
-        this.container = document.getElementById(elementId);
-        if (!this.container) {
-            this.container = document.createElement('div');
-            this.container.id = elementId;
-            this.container.style.cssText = 'position:fixed;left:-9999px;top:auto;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-10;';
-            document.body.appendChild(this.container);
-        }
-
-        this.iframe = null;
-        this._messageHandler = this._onMessage.bind(this);
-        window.addEventListener('message', this._messageHandler);
-
+        // Trigger onReady initially so player knows it's initialized
         setTimeout(() => {
             if (!this.readyTriggered) {
                 this.readyTriggered = true;
                 if (this.events.onReady) this.events.onReady();
             }
-        }, 200);
+        }, 100);
     }
-
-    _createIframe(videoId, startSeconds = 0) {
-        if (this.iframe) this.iframe.remove();
-        if (this._timeUpdateInterval) clearInterval(this._timeUpdateInterval);
-
-        const params = new URLSearchParams({
-            autoplay: '1', enablejsapi: '1', controls: '0',
-            disablekb: '1', fs: '0', modestbranding: '1',
-            rel: '0', showinfo: '0', origin: window.location.origin,
-            widget_referrer: window.location.origin,
-            start: String(Math.floor(startSeconds))
-        });
-
-        this.iframe = document.createElement('iframe');
-        this.iframe.id = 'mockYtIframe';
-        this.iframe.width = '1';
-        this.iframe.height = '1';
-        this.iframe.style.cssText = 'border:none;position:absolute;';
-        this.iframe.allow = 'autoplay; encrypted-media';
-        this.iframe.src = `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
-        this.container.innerHTML = '';
-        this.container.appendChild(this.iframe);
-
-        this._timeUpdateInterval = setInterval(() => {
-            this._postCommand('getPlayerState');
-            this._postCommand('getCurrentTime');
-            this._postCommand('getDuration');
-        }, 500);
-
-        this.iframe.addEventListener('load', () => {
-            this._postCommand('addEventListener', 'onStateChange');
-            this._postCommand('addEventListener', 'onError');
-            this._postCommand('setVolume', this.volume);
-            if (this.muted) this._postCommand('mute');
-        });
-    }
-
-    _postCommand(func, args) {
-        if (!this.iframe?.contentWindow) return;
-        try {
-            this.iframe.contentWindow.postMessage(JSON.stringify({
-                event: 'command', func, args: args !== undefined ? [args] : []
-            }), 'https://www.youtube.com');
-        } catch {}
-    }
-
-    _onMessage(event) {
-        if (!event.origin.includes('youtube.com')) return;
-        let data;
-        try { data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data; } catch { return; }
-        if (!data?.info) return;
-        const info = data.info;
-        if (typeof info.playerState !== 'undefined') {
-            const old = this._playerState;
-            this._playerState = info.playerState;
-            if (old !== info.playerState && this.events.onStateChange) {
-                this.events.onStateChange({ data: info.playerState });
-            }
-        }
-        if (typeof info.currentTime === 'number') this._currentTime = info.currentTime;
-        if (typeof info.duration === 'number' && info.duration > 0) this._duration = info.duration;
-        if (typeof info.volume === 'number') this.volume = info.volume;
-        if (typeof info.muted === 'boolean') this.muted = info.muted;
-        if (info.videoData?.video_id) this.currentVideoId = info.videoData.video_id;
-    }
-
+    
     loadVideoById(options) {
-        let videoId = '', startSeconds = 0;
-        if (typeof options === 'object') { videoId = options.videoId; startSeconds = options.startSeconds || 0; }
-        else { videoId = options; }
+        let videoId = '';
+        let startSeconds = 0;
+        if (typeof options === 'object') {
+            videoId = options.videoId;
+            startSeconds = options.startSeconds || 0;
+        } else {
+            videoId = options;
+        }
+        
         this.currentVideoId = videoId;
-        this._currentTime = 0;
-        this._playerState = 3;
-        this._createIframe(videoId, startSeconds);
+        this.audio.src = `/api/music/streams/${videoId}`;
+        this.audio.load();
+        
+        if (startSeconds > 0) {
+            const onMetadata = () => {
+                this.audio.currentTime = startSeconds;
+                this.audio.removeEventListener('loadedmetadata', onMetadata);
+            };
+            this.audio.addEventListener('loadedmetadata', onMetadata);
+        }
+        
+        this.audio.play().catch(err => {
+            console.warn('Audio play failed:', err);
+        });
     }
-
-    playVideo() { this._postCommand('playVideo'); }
-    pauseVideo() { this._postCommand('pauseVideo'); }
-    seekTo(seconds) { this._postCommand('seekTo', seconds); this._currentTime = seconds; }
-    setVolume(v) { this.volume = v; this._postCommand('setVolume', v); }
-    getVolume() { return this.volume; }
-    mute() { this.muted = true; this._postCommand('mute'); }
-    unMute() { this.muted = false; this._postCommand('unMute'); }
-    isMuted() { return this.muted; }
-    getDuration() { return this._duration || 0; }
-    getCurrentTime() { return this._currentTime || 0; }
-    getPlayerState() { return this._playerState; }
-    getVideoData() { return { video_id: this.currentVideoId }; }
-    setPlaybackRate(rate) { this._playbackRate = rate; this._postCommand('setPlaybackRate', rate); }
-    getAvailablePlaybackRates() { return [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]; }
-    destroy() {
-        if (this._timeUpdateInterval) clearInterval(this._timeUpdateInterval);
-        window.removeEventListener('message', this._messageHandler);
-        if (this.iframe) this.iframe.remove();
+    
+    playVideo() {
+        this.audio.play().catch(err => console.warn('Play failed:', err));
     }
-}
+    
+    pauseVideo() {
+        this.audio.pause();
+    }
+    
+    seekTo(seconds, allowSeekAhead) {
+        this.audio.currentTime = seconds;
+    }
+    
+    setVolume(volume) {
+        this.volume = volume;
+        this.audio.volume = volume / 100;
+    }
+    
+    getVolume() {
+        return this.volume;
+    }
+    
+    mute() {
+        this.muted = true;
+        this.audio.muted = true;
+    }
+    
+    unMute() {
+        this.muted = false;
+        this.audio.muted = false;
+    }
+    
+    isMuted() {
+        return this.muted;
+    }
+    
+    getDuration() {
+        return this.audio.duration || 0;
+    }
+    
+    getCurrentTime() {
+        return this.audio.currentTime || 0;
+    }
+    
+    getPlayerState() {
+        if (this.audio.ended) return window.YT.PlayerState.ENDED;
+        if (this.audio.paused) return window.YT.PlayerState.PAUSED;
+        return window.YT.PlayerState.PLAYING;
+    }
+    
+    getVideoData() {
+        return { video_id: this.currentVideoId };
+    }
+    
+    setPlaybackRate(rate) {
+        this.audio.playbackRate = rate;
+    }
+    
+    getAvailablePlaybackRates() {
+        return [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+    }
+};
 
-let apiReadyCalled = false;
 function onYouTubeIframeAPIReady() {
-    if (apiReadyCalled) return;
-    
-    if (!window.YT.Player) {
-        window.YT.Player = MockYTPlayer;
-        console.log('🎵 YouTube IFrame API not loaded. Using MockYTPlayer (fallback).');
-    } else {
-        console.log('🎵 YouTube IFrame API loaded. Using real YT.Player.');
-    }
-    
-    apiReadyCalled = true;
     Player.ytPlayer = new window.YT.Player('ytPlayerFrame', {
         height: '1',
         width: '1',
         playerVars: {
             autoplay: 0, controls: 0, disablekb: 1, fs: 0,
-            modestbranding: 1, rel: 0, showinfo: 0, origin: window.location.origin
+            modestbranding: 1, rel: 0, showinfo: 0
         },
         events: {
             onStateChange: (event) => {
@@ -2098,7 +2044,7 @@ function onYouTubeIframeAPIReady() {
                 }
             },
             onReady: () => {
-                console.log('🎵 YouTube Player Ready');
+                console.log('🎵 YouTube Player Ready (Simulated)');
                 Player.playerReady = true;
                 Player.setVolume(Player.volume, { persist: false });
                 Player.resetPlaybackRate();
@@ -2114,7 +2060,6 @@ function onYouTubeIframeAPIReady() {
         }
     });
 }
-window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
 
 // ────────────────────────── KARAOKE MODE MANAGER ──────────────────────────
 window.Karaoke = {
@@ -2289,9 +2234,7 @@ window.Karaoke = {
         const duration = parseFloat(activeLine.getAttribute('data-duration'));
         if (isNaN(startTime) || isNaN(duration) || duration <= 0) return;
         
-        // Offset of 0.22s to align with the active line offset and compensate for YouTube API latency
-        const offset = 0.22;
-        const elapsed = (currentTime + offset) - startTime;
+        const elapsed = currentTime - startTime;
         const progress = Math.max(0, Math.min(1, elapsed / duration));
         
         const chars = activeLine.querySelectorAll('.lyric-char');
@@ -2333,142 +2276,86 @@ window.Karaoke = {
     }
 };
 
-// Initialize mock player setup (fallback if real API doesn't load)
-// Instantly initialize MockYTPlayer native audio
-onYouTubeIframeAPIReady();
+// Initialize mock player setup
+setTimeout(onYouTubeIframeAPIReady, 100);
 
 Player.init();
 
 // Auto-Updater Renderer Logic
 document.addEventListener('DOMContentLoaded', () => {
     if (window.NeonWaveDesktop && typeof window.NeonWaveDesktop.onUpdaterStatus === 'function') {
-        const overlay = document.getElementById('updaterOverlay');
+        const banner = document.getElementById('updaterBanner');
         const message = document.getElementById('updaterMessage');
         const btn = document.getElementById('updaterBtn');
-        const progressCircle = document.getElementById('spinnerProgress');
-        const percentLabel = document.getElementById('updaterPercent');
-        const title = overlay?.querySelector('.updater-overlay-title');
-        const circumference = 251.2;
+        const loadingIcon = document.getElementById('updaterLoadingIcon');
+        const successIcon = document.getElementById('updaterSuccessIcon');
+        const errorIcon = document.getElementById('updaterErrorIcon');
 
-        const notesContainer = document.getElementById('updaterNotesContainer');
-        const notesContent = document.getElementById('updaterNotesContent');
+        if (!banner || !message || !btn) return;
 
-        if (!overlay || !message || !btn) return;
-
-        const setProgress = (value) => {
-            const progress = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
-            if (percentLabel) percentLabel.textContent = `${progress}%`;
-            if (progressCircle) {
-                progressCircle.style.strokeDashoffset = String(circumference * (1 - progress / 100));
-            }
+        const showIcon = (iconToShow) => {
+            [loadingIcon, successIcon, errorIcon].forEach(icon => {
+                if (icon) {
+                    if (icon === iconToShow) {
+                        icon.classList.remove('hidden');
+                    } else {
+                        icon.classList.add('hidden');
+                    }
+                }
+            });
         };
-
-        const hideOverlay = (delay = 0) => {
-            setTimeout(() => overlay.classList.add('hidden'), delay);
-        };
-
-        overlay.classList.remove('hidden');
-        if (title) title.textContent = 'Recherche de mise à jour';
-        message.textContent = 'Recherche de mises à jour...';
-        btn.classList.add('hidden');
-        if (notesContainer) notesContainer.classList.add('hidden');
-        setProgress(0);
-
-        let eventReceived = false;
-        const fallbackTimeout = setTimeout(() => {
-            if (!eventReceived) {
-                message.textContent = 'Votre application est à jour.';
-                setProgress(100);
-                hideOverlay(1500);
-            }
-        }, 4000);
 
         window.NeonWaveDesktop.onUpdaterStatus((status, details) => {
             console.log(`[Updater Status]: ${status}`, details || '');
-            eventReceived = true;
-            clearTimeout(fallbackTimeout);
 
             switch (status) {
                 case 'checking':
-                    overlay.classList.remove('hidden');
-                    if (title) title.textContent = 'Recherche de mise à jour';
+                    banner.classList.remove('hidden');
                     message.textContent = 'Recherche de mises à jour...';
                     btn.classList.add('hidden');
-                    if (notesContainer) notesContainer.classList.add('hidden');
-                    setProgress(0);
+                    showIcon(loadingIcon);
                     break;
 
                 case 'available':
-                    overlay.classList.remove('hidden');
-                    if (title) title.textContent = 'Mise à jour disponible';
+                    banner.classList.remove('hidden');
                     message.textContent = 'Mise à jour disponible ! Téléchargement...';
                     btn.classList.add('hidden');
-                    setProgress(0);
-
-                    if (details && typeof details === 'object') {
-                        const { version, releaseNotes } = details;
-                        if (version && title) {
-                            title.textContent = `Mise à jour disponible (v${version})`;
-                        }
-                        if (releaseNotes) {
-                            if (notesContainer && notesContent) {
-                                notesContent.innerHTML = releaseNotes;
-                                notesContainer.classList.remove('hidden');
-                            }
-                        } else {
-                            if (notesContainer) notesContainer.classList.add('hidden');
-                        }
-                    }
+                    showIcon(loadingIcon);
                     break;
 
                 case 'not-available':
-                    if (title) title.textContent = 'NeonWave est à jour';
                     message.textContent = 'Votre application est à jour.';
-                    setProgress(100);
-                    if (notesContainer) notesContainer.classList.add('hidden');
-                    hideOverlay(2000);
+                    showIcon(successIcon);
+                    // Hide after a brief delay
+                    setTimeout(() => {
+                        banner.classList.add('hidden');
+                    }, 3000);
                     break;
 
                 case 'downloading':
-                    overlay.classList.remove('hidden');
+                    banner.classList.remove('hidden');
                     const progress = typeof details === 'number' ? Math.round(details) : 0;
-                    if (title) title.textContent = 'Téléchargement en cours';
                     message.textContent = `Téléchargement : ${progress}%`;
                     btn.classList.add('hidden');
-                    setProgress(progress);
+                    showIcon(loadingIcon);
                     break;
 
                 case 'downloaded':
-                    overlay.classList.remove('hidden');
-                    if (title) title.textContent = 'Mise à jour prête';
+                    banner.classList.remove('hidden');
                     message.textContent = 'Prêt à être installé !';
                     btn.classList.remove('hidden');
-                    setProgress(100);
-
-                    if (details && typeof details === 'object') {
-                        const { version, releaseNotes } = details;
-                        if (version && title) {
-                            title.textContent = `Mise à jour prête (v${version})`;
-                        }
-                        if (releaseNotes) {
-                            if (notesContainer && notesContent) {
-                                notesContent.innerHTML = releaseNotes;
-                                notesContainer.classList.remove('hidden');
-                            }
-                        } else {
-                            if (notesContainer) notesContainer.classList.add('hidden');
-                        }
-                    }
+                    showIcon(successIcon);
                     break;
 
                 case 'error':
-                    overlay.classList.remove('hidden');
-                    if (title) title.textContent = 'Mise à jour indisponible';
+                    banner.classList.remove('hidden');
                     message.textContent = `Erreur : ${details || 'Échec de la mise à jour'}`;
                     btn.classList.add('hidden');
-                    if (notesContainer) notesContainer.classList.add('hidden');
-                    setProgress(0);
-                    hideOverlay(5000);
+                    showIcon(errorIcon);
+                    // Hide after a delay on error
+                    setTimeout(() => {
+                        banner.classList.add('hidden');
+                    }, 5000);
                     break;
             }
         });

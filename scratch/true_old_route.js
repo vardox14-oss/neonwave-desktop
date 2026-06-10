@@ -265,81 +265,18 @@ async function getOfflineFallbackRecommendations(db) {
     return STATIC_FALLBACK_TRACKS;
 }
 
-// --- INNERTUBE API (YouTube Internal API — replaces dead Piped instances) ---
-const INNERTUBE_API_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
-const INNERTUBE_CLIENT = {
-    clientName: 'WEB',
-    clientVersion: '2.20240530.02.00',
-    hl: 'fr',
-    gl: 'FR'
-};
+const PIPED_INSTANCES = [
+    'https://pipedapi.kavin.rocks',
+    'https://piped-api.lunar.icu',
+    'https://api.piped.projectsegfau.lt',
+    'https://pipedapi.riverside.rocks',
+    'https://api-piped.mha.fi',
+    'https://pipedapi.col7.it',
+    'https://piped-api.garudalinux.org',
+    'https://api.piped.cre.re'
+];
 
-async function innerTubeSearch(query, filter = 'music_songs') {
-    // InnerTube params for music filter: EgIQAQ%3D%3D
-    const params = filter === 'music_songs' ? 'EgIQAQ%3D%3D' : '';
-    const url = `https://www.youtube.com/youtubei/v1/search?key=${INNERTUBE_API_KEY}`;
-    const body = {
-        context: { client: INNERTUBE_CLIENT },
-        query: query
-    };
-    if (params) body.params = params;
-
-    try {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-                'Origin': 'https://www.youtube.com',
-                'Referer': 'https://www.youtube.com/'
-            },
-            body: JSON.stringify(body)
-        });
-
-        if (!res.ok) return null;
-        const data = await res.json();
-
-        const contents = data.contents?.twoColumnSearchResultsRenderer?.primaryContents?.sectionListRenderer?.contents || [];
-        const items = [];
-
-        for (const section of contents) {
-            const sectionContents = section?.itemSectionRenderer?.contents || [];
-            for (const item of sectionContents) {
-                if (item.videoRenderer) {
-                    const v = item.videoRenderer;
-                    if (!v.videoId) continue;
-
-                    const durationText = v.lengthText?.simpleText || '0:00';
-                    const parts = durationText.split(':').map(Number);
-                    let dur = 0;
-                    if (parts.length === 3) dur = parts[0] * 3600 + parts[1] * 60 + parts[2];
-                    else if (parts.length === 2) dur = parts[0] * 60 + parts[1];
-
-                    items.push({
-                        title: v.title?.runs?.[0]?.text || 'Untitled',
-                        url: `/watch?v=${v.videoId}`,
-                        videoId: v.videoId,
-                        uploaderName: v.ownerText?.runs?.[0]?.text || 'Unknown',
-                        uploaderUrl: v.ownerText?.runs?.[0]?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || '',
-                        thumbnail: v.thumbnail?.thumbnails?.slice(-1)[0]?.url || '',
-                        duration: dur,
-                        durationText: durationText,
-                        type: 'stream'
-                    });
-                }
-            }
-        }
-
-        if (items.length > 0) {
-            return { items };
-        }
-    } catch (err) {
-        console.error('InnerTube search error:', err.message);
-    }
-    return null;
-}
-
-
+// --- D1 HELPER FUNCTIONS ---
 async function getBannedIPs(db) {
     const row = await db.prepare('SELECT value FROM settings WHERE key = ?').bind('banned_ips').first();
     return row ? JSON.parse(row.value) : [];
@@ -864,85 +801,29 @@ app.get('/deezer/albums/:id', checkIPAndAuth, async (c) => {
     return c.json(data);
 });
 
-// --- YOUTUBE SEARCH & RESOLVING (InnerTube API) ---
-
-function normalizeText(text) {
-    return String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function scoreCandidate(item, expectedTitle, expectedArtist, expectedDurationMs) {
-    let score = 0;
-    const title = normalizeText(item.title);
-    const uploader = normalizeText(item.uploaderName);
-    const expTitle = normalizeText(expectedTitle);
-    const expArtist = normalizeText(expectedArtist);
-
-    // Title matching (most important)
-    if (expTitle && title.includes(expTitle)) score += 50;
-    else if (expTitle) {
-        const words = expTitle.split(' ').filter(w => w.length > 2);
-        const matched = words.filter(w => title.includes(w));
-        score += Math.round((matched.length / Math.max(words.length, 1)) * 30);
+// --- YOUTUBE STREAMS & RESOLVING (PIPED DIRECT) ---
+async function tryPipedFetch(path) {
+    const shuffled = [...PIPED_INSTANCES].sort(() => Math.random() - 0.5);
+    for (const baseUrl of shuffled.slice(0, 3)) {
+        try {
+            const res = await fetch(`${baseUrl}${path}`);
+            if (res.status === 200) {
+                const data = await res.json();
+                if (data && (Array.isArray(data.items) || Array.isArray(data.audioStreams))) {
+                    return data;
+                }
+            }
+        } catch {}
     }
-
-    // Artist matching
-    if (expArtist && (title.includes(expArtist) || uploader.includes(expArtist))) score += 30;
-    else if (expArtist) {
-        const words = expArtist.split(' ').filter(w => w.length > 2);
-        const matched = words.filter(w => uploader.includes(w) || title.includes(w));
-        score += Math.round((matched.length / Math.max(words.length, 1)) * 20);
-    }
-
-    // Prefer "official audio" and "audio" over music videos
-    if (title.includes('official audio') || title.includes('audio officiel')) score += 15;
-    else if (title.includes('audio')) score += 8;
-
-    // Penalize live, remix, cover, karaoke
-    if (title.includes('live') && !expTitle.includes('live')) score -= 20;
-    if (title.includes('remix') && !expTitle.includes('remix')) score -= 15;
-    if (title.includes('cover') && !expTitle.includes('cover')) score -= 20;
-    if (title.includes('karaoke') || title.includes('instrumental')) score -= 25;
-    if (title.includes('slowed') || title.includes('reverb') || title.includes('sped up')) score -= 15;
-
-    // Duration matching (if available)
-    if (expectedDurationMs > 0 && item.duration > 0) {
-        const expectedSec = expectedDurationMs / 1000;
-        const diff = Math.abs(item.duration - expectedSec);
-        if (diff < 5) score += 15;
-        else if (diff < 15) score += 8;
-        else if (diff > 60) score -= 10;
-    }
-
-    // Prefer shorter videos (more likely to be the song, not a compilation)
-    if (item.duration > 600) score -= 10; // > 10 min
-    if (item.duration > 1200) score -= 20; // > 20 min
-
-    return score;
-}
-
-function pickBestResult(items, title, artist, durationMs) {
-    if (!items || items.length === 0) return null;
-    if (items.length === 1) return items[0];
-
-    let best = items[0];
-    let bestScore = -Infinity;
-    for (const item of items.slice(0, 10)) {
-        const s = scoreCandidate(item, title, artist, durationMs);
-        if (s > bestScore) { bestScore = s; best = item; }
-    }
-    return best;
+    return null;
 }
 
 app.get('/music/resolve/:spotifyId', checkIPAndAuth, async (c) => {
-    const title = c.req.query('title') || '';
-    const artist = c.req.query('artist') || '';
-    const durationMs = parseInt(c.req.query('durationMs') || '0', 10);
-    const query = `${artist} ${title}`.trim();
-    if (!query) return c.json({ error: 'Aucun flux trouvé.' }, 404);
-
-    const searchData = await innerTubeSearch(query);
-    const bestItem = pickBestResult(searchData?.items, title, artist, durationMs);
+    const title = c.req.query('title');
+    const artist = c.req.query('artist');
+    const query = `${title} ${artist}`;
+    const pipedData = await tryPipedFetch(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
+    const bestItem = pipedData?.items?.[0];
     if (bestItem) {
         return c.json({
             videoId: bestItem.videoId,
@@ -955,14 +836,11 @@ app.get('/music/resolve/:spotifyId', checkIPAndAuth, async (c) => {
 });
 
 app.get('/music/resolve-by-metadata', checkIPAndAuth, async (c) => {
-    const title = c.req.query('title') || '';
-    const artist = c.req.query('artist') || '';
-    const durationMs = parseInt(c.req.query('durationMs') || '0', 10);
-    const query = `${artist} ${title}`.trim();
-    if (!query) return c.json({ error: 'Aucun flux trouvé.' }, 404);
-
-    const searchData = await innerTubeSearch(query);
-    const bestItem = pickBestResult(searchData?.items, title, artist, durationMs);
+    const title = c.req.query('title');
+    const artist = c.req.query('artist');
+    const query = `${title} ${artist}`;
+    const pipedData = await tryPipedFetch(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
+    const bestItem = pipedData?.items?.[0];
     if (bestItem) {
         return c.json({
             videoId: bestItem.videoId,
@@ -976,64 +854,34 @@ app.get('/music/resolve-by-metadata', checkIPAndAuth, async (c) => {
 
 app.get('/music/streams/:id', checkIPAndAuth, async (c) => {
     const videoId = c.req.param('id');
-    const db = c.env.DB;
-    const user = c.get('user');
-    
-    // Log history
-    const playEntry = {
-        videoId,
-        title: c.req.query('title') || 'Titre inconnu',
-        artist: c.req.query('artist') || 'Artiste inconnu',
-        thumb: c.req.query('thumb') || '',
-        playedAt: new Date().toISOString()
-    };
-    user.history.unshift(playEntry);
-    if (user.history.length > 500) user.history.pop();
-    user.recentlyPlayed = [
-        playEntry,
-        ...user.recentlyPlayed.filter(t => t.videoId !== videoId)
-    ].slice(0, 20);
-    await saveUser(db, user);
+    const pipedData = await tryPipedFetch(`/streams/${encodeURIComponent(videoId)}`);
+    if (pipedData && Array.isArray(pipedData.audioStreams) && pipedData.audioStreams.length > 0) {
+        const sorted = [...pipedData.audioStreams].sort((l, r) => (r.bitrate || 0) - (l.bitrate || 0));
+        const bestStream = sorted[0];
+        if (bestStream?.url) {
+            // Log history
+            const db = c.env.DB;
+            const user = c.get('user');
+            const playEntry = {
+                videoId,
+                title: pipedData.title || 'Titre inconnu',
+                artist: pipedData.uploader || 'Artiste inconnu',
+                thumb: pipedData.thumbnailUrl || '',
+                playedAt: new Date().toISOString()
+            };
+            user.history.unshift(playEntry);
+            if (user.history.length > 500) user.history.pop();
+            user.recentlyPlayed = [
+                playEntry,
+                ...user.recentlyPlayed.filter(t => t.videoId !== videoId)
+            ].slice(0, 20);
+            await saveUser(db, user);
 
-    try {
-        const instancesRes = await fetch('https://api.invidious.io/instances.json?sort_by=health');
-        if (instancesRes.ok) {
-            const instances = await instancesRes.json();
-            const urls = instances
-                .filter(i => i[1].api === true && i[1].type === 'https' && i[1].cors === true)
-                .map(i => i[1].uri);
-            
-            for (const url of urls.slice(0, 5)) {
-                try {
-                    const testRes = await fetch(`${url}/api/v1/videos/${videoId}`);
-                    if (testRes.ok) {
-                        const data = await testRes.json();
-                        if (data.adaptiveFormats && data.adaptiveFormats.length > 0) {
-                            const audio = data.adaptiveFormats.find(f => f.type.startsWith('audio/mp4')) || data.adaptiveFormats.find(f => f.type.startsWith('audio'));
-                            if (audio && audio.url) {
-                                return c.redirect(audio.url, 307);
-                            }
-                        }
-                    }
-                } catch (e) {}
-            }
+            // Redirect client to direct audio stream URL
+            return c.redirect(bestStream.url, 307);
         }
-    } catch (err) {
-        console.error('Invidious fetch error:', err);
     }
-    
-    try {
-        const testRes = await fetch(`https://inv.thepixora.com/api/v1/videos/${videoId}`);
-        if (testRes.ok) {
-            const data = await testRes.json();
-            if (data.adaptiveFormats) {
-                const audio = data.adaptiveFormats.find(f => f.type.startsWith('audio/mp4')) || data.adaptiveFormats.find(f => f.type.startsWith('audio'));
-                if (audio && audio.url) return c.redirect(audio.url, 307);
-            }
-        }
-    } catch (e) {}
-
-    return c.json({ error: 'Aucun flux audio disponible.' }, 404);
+    return c.json({ error: 'Impossible de charger le flux audio.' }, 404);
 });
 
 // --- USER RECAPS & PREFERENCES ---
