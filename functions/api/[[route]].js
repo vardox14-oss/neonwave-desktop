@@ -141,7 +141,7 @@ const checkIPAndAuth = async (c, next) => {
 
     try {
         const secret = c.env.JWT_SECRET || JWT_SECRET;
-        const decoded = await verify(token, secret);
+        const decoded = await verify(token, secret, 'HS256');
         const user = await getUserById(db, decoded.id);
 
         if (!user) {
@@ -210,7 +210,7 @@ app.post('/setup/owner', async (c) => {
         await setSetupCompleted(db, true);
 
         const secret = c.env.JWT_SECRET || JWT_SECRET;
-        const token = await sign({ id: owner.id, email: owner.email, role: owner.role }, secret);
+        const token = await sign({ id: owner.id, email: owner.email, role: owner.role }, secret, 'HS256');
         setCookie(c, 'token', token, {
             path: '/',
             httpOnly: true,
@@ -267,7 +267,7 @@ app.post('/auth/register', async (c) => {
     await saveUser(db, user);
 
     const secret = c.env.JWT_SECRET || JWT_SECRET;
-    const token = await sign({ id: user.id, email: user.email, role: user.role }, secret);
+    const token = await sign({ id: user.id, email: user.email, role: user.role }, secret, 'HS256');
     setCookie(c, 'token', token, {
         path: '/',
         httpOnly: true,
@@ -310,7 +310,7 @@ app.post('/auth/login', async (c) => {
 
     const secret = c.env.JWT_SECRET || JWT_SECRET;
     const expiresIn = rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60;
-    const token = await sign({ id: user.id, email: user.email, role: user.role }, secret);
+    const token = await sign({ id: user.id, email: user.email, role: user.role }, secret, 'HS256');
 
     setCookie(c, 'token', token, {
         path: '/',
