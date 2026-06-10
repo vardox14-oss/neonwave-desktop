@@ -439,7 +439,7 @@ const checkIPAndAuth = async (c, next) => {
 
     const authHeader = c.req.header('Authorization');
     const cookieToken = getCookie(c, 'token');
-    const token = cookieToken || (authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null);
+    const token = cookieToken || c.req.query('token') || (authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null);
 
     if (!token) {
         return c.json({ error: 'Auth requis' }, 401);

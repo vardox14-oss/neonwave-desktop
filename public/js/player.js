@@ -2004,7 +2004,8 @@ class MockYTPlayer {
         }
         
         this.currentVideoId = videoId;
-        this.audio.src = `/api/music/streams/${videoId}`;
+        const token = localStorage.getItem('token') || '';
+        this.audio.src = `/api/music/streams/${videoId}?token=${token}`;
         this.audio.load();
         
         if (startSeconds > 0) {
