@@ -950,7 +950,7 @@ const Music = {
             id: track.videoId,
             title: track.title || track.name || 'Sans titre',
             artist: track.artist || track.uploaderName || 'Artiste inconnu',
-            thumb: (track.thumb || track.thumbnail)nail || this.currentArtistProfile?.artist?.imageUrl || ''
+            thumb: (track.thumb || track.thumbnail) || this.currentArtistProfile?.artist?.imageUrl || ''
         }));
         Player.renderQueue();
         Player.playFromQueue(Math.min(startIndex, Math.max(playableTracks.length - 1, 0)));
@@ -1355,7 +1355,7 @@ const Music = {
             const isLocalSource = track.source === 'local' || String(playbackId).startsWith('local-');
             const rawTitle = track.title || track.name || 'Sans titre';
             const rawArtist = this.getTrackArtistLabel(track);
-            const thumb = (track.thumb || track.thumbnail)nail || (track.thumb || track.thumbnail) || track.imageUrl || (isLocalSource
+            const thumb = (track.thumb || track.thumbnail) || (track.thumb || track.thumbnail) || track.imageUrl || (isLocalSource
                 ? ''
                 : videoId
                 ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
@@ -1903,7 +1903,7 @@ const Music = {
             spotifyId: this.normalizeTrackKey(track.spotifyId || (this.isSpotifyTrackId(track.id) ? track.id : '')),
             title: track.name || track.title || 'Sans titre',
             artist: this.getTrackArtistLabel(track),
-            thumb: (track.thumb || track.thumbnail)nail || (track.thumb || track.thumbnail) || track.imageUrl || this.currentAlbum.imageUrl || '',
+            thumb: (track.thumb || track.thumbnail) || (track.thumb || track.thumbnail) || track.imageUrl || this.currentAlbum.imageUrl || '',
             searchQuery: [this.getTrackArtistLabel(track), track.name || track.title || 'Sans titre', 'audio'].filter(Boolean).join(' '),
             original: track
         }));
