@@ -995,45 +995,8 @@ app.get('/music/streams/:id', checkIPAndAuth, async (c) => {
     ].slice(0, 20);
     await saveUser(db, user);
 
-    try {
-        const instancesRes = await fetch('https://api.invidious.io/instances.json?sort_by=health');
-        if (instancesRes.ok) {
-            const instances = await instancesRes.json();
-            const urls = instances
-                .filter(i => i[1].api === true && i[1].type === 'https' && i[1].cors === true)
-                .map(i => i[1].uri);
-            
-            for (const url of urls.slice(0, 5)) {
-                try {
-                    const testRes = await fetch(`${url}/api/v1/videos/${videoId}`);
-                    if (testRes.ok) {
-                        const data = await testRes.json();
-                        if (data.adaptiveFormats && data.adaptiveFormats.length > 0) {
-                            const audio = data.adaptiveFormats.find(f => f.type.startsWith('audio/mp4')) || data.adaptiveFormats.find(f => f.type.startsWith('audio'));
-                            if (audio && audio.url) {
-                                return c.redirect(audio.url, 307);
-                            }
-                        }
-                    }
-                } catch (e) {}
-            }
-        }
-    } catch (err) {
-        console.error('Invidious fetch error:', err);
-    }
-    
-    try {
-        const testRes = await fetch(`https://inv.thepixora.com/api/v1/videos/${videoId}`);
-        if (testRes.ok) {
-            const data = await testRes.json();
-            if (data.adaptiveFormats) {
-                const audio = data.adaptiveFormats.find(f => f.type.startsWith('audio/mp4')) || data.adaptiveFormats.find(f => f.type.startsWith('audio'));
-                if (audio && audio.url) return c.redirect(audio.url, 307);
-            }
-        }
-    } catch (e) {}
-
-    return c.json({ error: 'Aucun flux audio disponible.' }, 404);
+    // Redirect to our custom VPS proxy using yt-dlp with cookies
+    return c.redirect(`http://80.241.223.11:4000/api/stream/${videoId}`, 307);
 });
 
 // --- USER RECAPS & PREFERENCES ---
