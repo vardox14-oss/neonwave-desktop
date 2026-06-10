@@ -22,6 +22,249 @@ const MUSIC_GENRE_MAP = MUSIC_GENRE_OPTIONS.reduce((acc, item) => {
     return acc;
 }, {});
 
+const FALLBACK_ARTIST_IMAGES = {
+    'maes': 'https://cdn-images.dzcdn.net/images/artist/14c919011b4dc5575aa64bcf7311aa5d/1000x1000-000000-80-0-0.jpg',
+    'ninho': 'https://cdn-images.dzcdn.net/images/artist/7601c5c0e2bd16cb585898316fd0dfec/1000x1000-000000-80-0-0.jpg',
+    'sch': 'https://cdn-images.dzcdn.net/images/artist/8d9c407bd25fab0fc961b6abf335e874/1000x1000-000000-80-0-0.jpg',
+    'damso': 'https://cdn-images.dzcdn.net/images/artist/f1a596b126611260994271ce4cb54bb0/1000x1000-000000-80-0-0.jpg',
+    'gazo': 'https://cdn-images.dzcdn.net/images/artist/54c1dc208f92240e9d56b595708ed284/1000x1000-000000-80-0-0.jpg',
+    'tiakola': 'https://cdn-images.dzcdn.net/images/artist/0df16db136e7417eeef74988208859c3/1000x1000-000000-80-0-0.jpg',
+    'aya nakamura': 'https://cdn-images.dzcdn.net/images/artist/c8bca3e6aed3da8de8cbe0edd91bc156/1000x1000-000000-80-0-0.jpg',
+    'burna boy': 'https://cdn-images.dzcdn.net/images/artist/ad15b7f03325752d60db9e4d39c079ae/1000x1000-000000-80-0-0.jpg',
+    'drake': 'https://cdn-images.dzcdn.net/images/artist/eb0ed5b21d1ea5af021fc074ded0e91f/1000x1000-000000-80-0-0.jpg',
+    'the weeknd': 'https://cdn-images.dzcdn.net/images/artist/581693b4724a7fcfa754455101e13a44/1000x1000-000000-80-0-0.jpg',
+    'travis scott': 'https://cdn-images.dzcdn.net/images/artist/8d8316146026d7e6ce377e314536df62/1000x1000-000000-80-0-0.jpg',
+    'jul': 'https://cdn-images.dzcdn.net/images/artist/16eb681d72934d4db17088dfc216669d/1000x1000-000000-80-0-0.jpg',
+    'werenoi': 'https://cdn-images.dzcdn.net/images/artist/c9a941ffdfec123385b9e0b8b20f9ac0/1000x1000-000000-80-0-0.jpg',
+    'booba': 'https://cdn-images.dzcdn.net/images/artist/38b687e97c6874e744d305ef2ca8d0d0/1000x1000-000000-80-0-0.jpg',
+    'pnl': 'https://cdn-images.dzcdn.net/images/artist/9277fdce45b79945918c24f69cb6e8e3/1000x1000-000000-80-0-0.jpg',
+    'freeze corleone': 'https://cdn-images.dzcdn.net/images/artist/cdac7dd9008bcce4c12809c93989e348/1000x1000-000000-80-0-0.jpg',
+    'saif': 'https://cdn-images.dzcdn.net/images/artist/ce23fc0a3302d65712df2dcfeef5467e/1000x1000-000000-80-0-0.jpg',
+    'saïf': 'https://cdn-images.dzcdn.net/images/artist/ce23fc0a3302d65712df2dcfeef5467e/1000x1000-000000-80-0-0.jpg',
+    'pato': 'https://cdn-images.dzcdn.net/images/artist/28e12b8806d4baa0c3affc8e28a0809e/1000x1000-000000-80-0-0.jpg'
+};
+
+const DEFAULT_FALLBACK_IMAGES = [
+    'https://cdn-images.dzcdn.net/images/artist/14c919011b4dc5575aa64bcf7311aa5d/1000x1000-000000-80-0-0.jpg',
+    'https://cdn-images.dzcdn.net/images/artist/7601c5c0e2bd16cb585898316fd0dfec/1000x1000-000000-80-0-0.jpg',
+    'https://cdn-images.dzcdn.net/images/artist/8d9c407bd25fab0fc961b6abf335e874/1000x1000-000000-80-0-0.jpg',
+    'https://cdn-images.dzcdn.net/images/artist/f1a596b126611260994271ce4cb54bb0/1000x1000-000000-80-0-0.jpg'
+];
+
+const DEFAULT_FALLBACK_ARTIST_NAMES = [
+    'Maes', 'Ninho', 'SCH', 'Damso', 'Gazo', 'Tiakola',
+    'Aya Nakamura', 'Burna Boy', 'Drake', 'The Weeknd', 'Travis Scott', 'Jul'
+];
+
+const RELATED_ARTIST_FALLBACKS = {
+    maes: ['SCH', 'Ninho', 'Damso', 'Tiakola', 'Gazo'],
+    ninho: ['Maes', 'SCH', 'Damso', 'Tiakola', 'Gazo'],
+    sch: ['Damso', 'Maes', 'Ninho', 'Gazo', 'Jul'],
+    damso: ['SCH', 'Ninho', 'Maes', 'The Weeknd', 'Drake'],
+    gazo: ['Tiakola', 'Maes', 'Ninho', 'SCH', 'Travis Scott'],
+    tiakola: ['Gazo', 'Ninho', 'Maes', 'Aya Nakamura', 'Burna Boy'],
+    'aya nakamura': ['Burna Boy', 'Tiakola', 'Drake', 'The Weeknd', 'Jul'],
+    'burna boy': ['Aya Nakamura', 'Drake', 'The Weeknd', 'Tiakola', 'Damso'],
+    drake: ['The Weeknd', 'Travis Scott', 'Burna Boy', 'Damso', 'Aya Nakamura'],
+    'the weeknd': ['Drake', 'Travis Scott', 'Damso', 'Burna Boy', 'Aya Nakamura'],
+    'travis scott': ['Drake', 'The Weeknd', 'Gazo', 'Damso', 'SCH'],
+    jul: ['SCH', 'Maes', 'Ninho', 'Aya Nakamura', 'Tiakola']
+};
+
+const STATIC_FALLBACK_TRACKS = [
+    {
+        id: "J05Ww73KlLE",
+        videoId: "J05Ww73KlLE",
+        spotifyId: "",
+        title: "Distant",
+        artist: "Maes feat. Ninho",
+        thumb: "https://cdn-images.dzcdn.net/images/cover/b0122ae8efd3951902e1f01673a4f219/1000x1000-000000-80-0-0.jpg",
+        source: "spotify",
+        durationMs: 181000
+    },
+    {
+        id: "3r813K1jK1k",
+        videoId: "3r813K1jK1k",
+        spotifyId: "",
+        title: "Madrina",
+        artist: "Maes feat. Booba",
+        thumb: "https://cdn-images.dzcdn.net/images/cover/708aea49a3c6311ba1d83273e6a4d0e3/1000x1000-000000-80-0-0.jpg",
+        source: "spotify",
+        durationMs: 200000
+    },
+    {
+        id: "5wY31c9a6oM",
+        videoId: "5wY31c9a6oM",
+        spotifyId: "",
+        title: "PARANO",
+        artist: "GAULOIS feat. Maes",
+        thumb: "https://cdn-images.dzcdn.net/images/cover/f53927289cf5798a4d82f92d953ea2ff/1000x1000-000000-80-0-0.jpg",
+        source: "spotify",
+        durationMs: 185000
+    },
+    {
+        id: "j93dSpC8T3A",
+        videoId: "j93dSpC8T3A",
+        spotifyId: "",
+        title: "T'avais raison",
+        artist: "GIMS, Maes",
+        thumb: "https://cdn-images.dzcdn.net/images/cover/fe8d3b62b12560fe169d428b0d28597e/1000x1000-000000-80-0-0.jpg",
+        source: "spotify",
+        durationMs: 181000
+    },
+    {
+        id: "Gq4oD5k_yv4",
+        videoId: "Gq4oD5k_yv4",
+        spotifyId: "",
+        title: "FC BEAUDOTTES",
+        artist: "Maes",
+        thumb: "https://cdn-images.dzcdn.net/images/cover/eb87bb36f5eaac37d553b85143bf8eed/1000x1000-000000-80-0-0.jpg",
+        source: "spotify",
+        durationMs: 185000
+    },
+    {
+        id: "4CgR-p1hLsk",
+        videoId: "4CgR-p1hLsk",
+        spotifyId: "",
+        title: "HIJAMA",
+        artist: "Maes",
+        thumb: "https://cdn-images.dzcdn.net/images/cover/33546e8c7b544a4a20d6592af1f4ad56/1000x1000-000000-80-0-0.jpg",
+        source: "spotify",
+        durationMs: 193000
+    },
+    {
+        id: "d4TndR9g83M",
+        videoId: "d4TndR9g83M",
+        spotifyId: "",
+        title: "Tout va bien",
+        artist: "Alonzo feat. Ninho & Naps",
+        thumb: "https://cdn-images.dzcdn.net/images/cover/444dfc082c5570458c36f0268b5a206e/1000x1000-000000-80-0-0.jpg",
+        source: "spotify",
+        durationMs: 190000
+    },
+    {
+        id: "c7D2aI_A1P4",
+        videoId: "c7D2aI_A1P4",
+        spotifyId: "",
+        title: "La Kiffance",
+        artist: "Naps",
+        thumb: "https://cdn-images.dzcdn.net/images/cover/0846f00620ad172c934e89bcad774388/1000x1000-000000-80-0-0.jpg",
+        source: "spotify",
+        durationMs: 179000
+    }
+];
+
+function buildFallbackArtist(name, index = 0) {
+    const safeName = (name || '').trim().replace(/\s+/g, ' ');
+    const knownImage = FALLBACK_ARTIST_IMAGES[safeName.toLowerCase()];
+    return {
+        spotifyId: '',
+        name: safeName,
+        imageUrl: knownImage || DEFAULT_FALLBACK_IMAGES[index % DEFAULT_FALLBACK_IMAGES.length],
+        spotifyUrl: '',
+        genres: [],
+        popularity: 0,
+        followers: 0,
+        source: 'fallback'
+    };
+}
+
+async function searchSpotifyArtists(env, token, query, limit = 8) {
+    if (!token) return [];
+    try {
+        const res = await fetch(`${SPOTIFY_API_BASE}/search?q=${encodeURIComponent(query)}&type=artist&market=FR&limit=${limit}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return (data?.artists?.items || []).map(item => ({
+            spotifyId: item.id || '',
+            name: item.name || '',
+            imageUrl: Array.isArray(item.images) && item.images.length > 0 ? (item.images[0].url || '') : '',
+            spotifyUrl: item.external_urls?.spotify || '',
+            genres: Array.isArray(item.genres) ? item.genres.slice(0, 5) : [],
+            popularity: typeof item.popularity === 'number' ? item.popularity : 0,
+            followers: item.followers?.total || 0,
+            source: 'spotify'
+        }));
+    } catch (err) {
+        console.error('Spotify artist search failed in worker:', err);
+        return [];
+    }
+}
+
+async function getTopTracks(env, token, limit = 12) {
+    if (!token) return [];
+    try {
+        const res = await fetch(`${SPOTIFY_API_BASE}/search?q=top%2050%20France&type=track&market=FR&limit=${limit}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            return (data?.tracks?.items || []).map(item => ({
+                id: item.id || '',
+                videoId: '',
+                spotifyId: item.id || '',
+                title: item.name || '',
+                artist: Array.isArray(item.artists) ? item.artists[0]?.name || '' : '',
+                thumb: Array.isArray(item.album?.images) && item.album.images.length > 0 ? item.album.images[0].url : '',
+                source: 'spotify',
+                durationMs: item.duration_ms || 180000
+            }));
+        }
+    } catch (err) {
+        console.error('Failed fetching top tracks in worker:', err);
+    }
+    return [];
+}
+
+async function getOfflineFallbackRecommendations(db) {
+    try {
+        const rows = await db.prepare('SELECT history FROM users').all();
+        const allTracksMap = new Map();
+        
+        if (rows && Array.isArray(rows.results)) {
+            rows.results.forEach(row => {
+                if (!row.history) return;
+                try {
+                    const history = JSON.parse(row.history);
+                    if (Array.isArray(history)) {
+                        history.forEach(track => {
+                            if (!track.videoId) return;
+                            const key = track.videoId;
+                            if (!allTracksMap.has(key)) {
+                                allTracksMap.set(key, {
+                                    id: track.videoId,
+                                    videoId: track.videoId,
+                                    spotifyId: track.spotifyId || '',
+                                    title: track.title,
+                                    artist: track.artist || track.uploaderName || 'Artiste inconnu',
+                                    thumb: track.thumb || track.thumbnail || '',
+                                    source: track.source || 'youtube',
+                                    durationMs: track.durationMs || 180000,
+                                    count: 0
+                                });
+                            }
+                            allTracksMap.get(key).count += 1;
+                        });
+                    }
+                } catch {}
+            });
+        }
+        
+        const popularTracks = Array.from(allTracksMap.values())
+            .sort((a, b) => b.count - a.count)
+            .map(({ count, ...track }) => track);
+            
+        if (popularTracks.length >= 6) {
+            return popularTracks;
+        }
+    } catch (e) {
+        console.error('Offline fallback DB recommendations error:', e);
+    }
+    return STATIC_FALLBACK_TRACKS;
+}
+
 const PIPED_INSTANCES = [
     'https://pipedapi.kavin.rocks',
     'https://piped-api.lunar.icu',
@@ -412,6 +655,113 @@ app.get('/spotify/albums/:id', checkIPAndAuth, async (c) => {
     return c.json(data);
 });
 
+app.get('/spotify/artists/defaults', checkIPAndAuth, async (c) => {
+    const env = c.env;
+    const token = await getSpotifyToken(env);
+    const spotifyEnabled = Boolean(token);
+    
+    let items = [];
+    if (spotifyEnabled) {
+        try {
+            const results = await Promise.allSettled(
+                DEFAULT_FALLBACK_ARTIST_NAMES.map(async (name) => {
+                    const matches = await searchSpotifyArtists(env, token, name, 3);
+                    return matches[0] || null;
+                })
+            );
+            
+            const seen = new Set();
+            results.forEach((res, index) => {
+                const artist = res.status === 'fulfilled' && res.value ? res.value : buildFallbackArtist(DEFAULT_FALLBACK_ARTIST_NAMES[index], index);
+                const identity = (artist.spotifyId || artist.name).toLowerCase();
+                if (identity && !seen.has(identity)) {
+                    seen.add(identity);
+                    items.push(artist);
+                }
+            });
+        } catch (err) {
+            console.error('Failed fetching defaults from Spotify:', err);
+        }
+    }
+    
+    if (items.length === 0) {
+        items = DEFAULT_FALLBACK_ARTIST_NAMES.map((name, index) => buildFallbackArtist(name, index));
+    }
+    
+    return c.json({ items, spotifyEnabled });
+});
+
+app.get('/spotify/search-artists', checkIPAndAuth, async (c) => {
+    const query = (c.req.query('q') || '').trim();
+    if (query.length < 2) {
+        return c.json({ items: [] });
+    }
+    
+    const env = c.env;
+    const token = await getSpotifyToken(env);
+    const spotifyEnabled = Boolean(token);
+    
+    let items = [];
+    if (spotifyEnabled) {
+        items = await searchSpotifyArtists(env, token, query, 8);
+    }
+    
+    if (items.length === 0) {
+        const fallbackNames = Array.from(new Set([
+            ...DEFAULT_FALLBACK_ARTIST_NAMES,
+            ...Object.keys(RELATED_ARTIST_FALLBACKS),
+            ...Object.values(RELATED_ARTIST_FALLBACKS).flat()
+        ])).filter(name => name.toLowerCase().includes(query.toLowerCase()));
+        
+        if (fallbackNames.length > 0) {
+            items = fallbackNames.slice(0, 8).map((name, index) => buildFallbackArtist(name, index));
+        } else {
+            items = [buildFallbackArtist(query)];
+        }
+    }
+    
+    return c.json({ items, spotifyEnabled });
+});
+
+app.get('/spotify/artists/:id/related', checkIPAndAuth, async (c) => {
+    const artistId = c.req.param('id');
+    const fallbackName = (c.req.query('name') || '').trim();
+    const env = c.env;
+    const token = await getSpotifyToken(env);
+    const spotifyEnabled = Boolean(token);
+    
+    let items = [];
+    if (spotifyEnabled && artistId && artistId !== 'fallback') {
+        try {
+            const res = await fetch(`${SPOTIFY_API_BASE}/artists/${encodeURIComponent(artistId)}/related-artists`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                items = (data?.artists || []).map(item => ({
+                    spotifyId: item.id || '',
+                    name: item.name || '',
+                    imageUrl: Array.isArray(item.images) && item.images.length > 0 ? (item.images[0].url || '') : '',
+                    spotifyUrl: item.external_urls?.spotify || '',
+                    genres: Array.isArray(item.genres) ? item.genres.slice(0, 5) : [],
+                    popularity: typeof item.popularity === 'number' ? item.popularity : 0,
+                    followers: item.followers?.total || 0,
+                    source: 'spotify'
+                }));
+            }
+        } catch (err) {
+            console.error('Spotify related artists failed:', err);
+        }
+    }
+    
+    if (items.length === 0 && fallbackName) {
+        const relatedNames = RELATED_ARTIST_FALLBACKS[fallbackName.toLowerCase()] || [];
+        items = relatedNames.map((name, index) => buildFallbackArtist(name, index));
+    }
+    
+    return c.json({ items, spotifyEnabled });
+});
+
 app.get('/deezer/albums/:id', checkIPAndAuth, async (c) => {
     const id = c.req.param('id');
     const res = await fetch(`https://api.deezer.com/album/${id}`);
@@ -522,11 +872,13 @@ app.get('/user/weekly-recap', checkIPAndAuth, async (c) => {
 
 app.get('/user/music-preferences', checkIPAndAuth, async (c) => {
     const user = c.get('user');
+    const token = await getSpotifyToken(c.env);
     return c.json({
         completed: user.musicOnboardingCompleted,
         genres: user.musicPreferences.genres || [],
         artists: user.musicPreferences.artists || [],
-        followedArtists: user.followedArtists || []
+        followedArtists: user.followedArtists || [],
+        spotifyEnabled: Boolean(token)
     });
 });
 
@@ -534,28 +886,386 @@ app.post('/user/music-preferences', checkIPAndAuth, async (c) => {
     const db = c.env.DB;
     const user = c.get('user');
     const body = await c.req.json();
+    
     user.musicPreferences = {
         genres: body.genres || [],
         artists: body.artists || []
     };
+    
+    user.followedArtists = user.followedArtists || [];
+    const existingFollowed = new Set(user.followedArtists.map(a => (a.spotifyId || a.name || '').toLowerCase()));
+    
+    (body.artists || []).forEach(artist => {
+        const key = (artist.spotifyId || artist.name || '').toLowerCase();
+        if (key && !existingFollowed.has(key)) {
+            user.followedArtists.push(artist);
+            existingFollowed.add(key);
+        }
+    });
+
     user.musicOnboardingCompleted = true;
     user.musicPreferencesUpdatedAt = new Date().toISOString();
     await saveUser(db, user);
-    return c.json({ success: true });
+    
+    const token = await getSpotifyToken(c.env);
+    return c.json({
+        completed: user.musicOnboardingCompleted,
+        genres: user.musicPreferences.genres || [],
+        artists: user.musicPreferences.artists || [],
+        followedArtists: user.followedArtists || [],
+        spotifyEnabled: Boolean(token)
+    });
 });
 
 app.post('/user/followed-artists/toggle', checkIPAndAuth, async (c) => {
     const db = c.env.DB;
     const user = c.get('user');
-    const artist = await c.req.json();
+    const body = await c.req.json();
+    const artist = body.artist || body;
+    if (!artist?.name) {
+        return c.json({ error: 'Artiste invalide.' }, 400);
+    }
+    
+    user.followedArtists = user.followedArtists || [];
     const index = user.followedArtists.findIndex(a => (a.spotifyId || a.name) === (artist.spotifyId || artist.name));
+    let followed = false;
+    
     if (index === -1) {
         user.followedArtists.push(artist);
+        followed = true;
     } else {
         user.followedArtists.splice(index, 1);
+        followed = false;
     }
+    
     await saveUser(db, user);
-    return c.json({ success: true, followedArtists: user.followedArtists });
+    return c.json({ followed, followedArtists: user.followedArtists });
+});
+
+app.get('/user/recommendations', checkIPAndAuth, async (c) => {
+    const user = c.get('user');
+    const db = c.env.DB;
+    const token = await getSpotifyToken(c.env);
+    const spotifyEnabled = Boolean(token);
+    
+    if (!user.musicOnboardingCompleted) {
+        return c.json({ items: [] });
+    }
+    
+    const artistSeeds = (user.musicPreferences?.artists || [])
+        .map(a => a.spotifyId || a.name)
+        .filter(Boolean);
+    const genreSeeds = user.musicPreferences?.genres || [];
+    
+    const artistIds = (user.musicPreferences?.artists || [])
+        .map(a => a.spotifyId)
+        .filter(Boolean);
+        
+    let items = [];
+    if (spotifyEnabled && artistIds.length > 0) {
+        try {
+            const seedArtists = artistIds.slice(0, 5).join(',');
+            const res = await fetch(`${SPOTIFY_API_BASE}/recommendations?seed_artists=${encodeURIComponent(seedArtists)}&market=FR&limit=12`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                items = (data?.tracks || []).map(item => ({
+                    id: item.id || '',
+                    videoId: '',
+                    spotifyId: item.id || '',
+                    title: item.name || '',
+                    artist: Array.isArray(item.artists) ? item.artists[0]?.name || '' : '',
+                    thumb: Array.isArray(item.album?.images) && item.album.images.length > 0 ? item.album.images[0].url : '',
+                    source: 'spotify',
+                    durationMs: item.duration_ms || 180000
+                }));
+            }
+        } catch (err) {
+            console.error('Failed fetching Spotify recommendations in user/recommendations:', err);
+        }
+    }
+    
+    if (items.length === 0) {
+        items = await getOfflineFallbackRecommendations(db);
+    }
+    
+    return c.json({
+        items: items.slice(0, 12),
+        seeds: {
+            artists: artistSeeds,
+            genres: genreSeeds
+        }
+    });
+});
+
+app.get('/music/recommendations', checkIPAndAuth, async (c) => {
+    const seedTracks = c.req.query('seed_tracks') || '';
+    const env = c.env;
+    const db = c.env.DB;
+    const token = await getSpotifyToken(env);
+    
+    let items = [];
+    if (token && seedTracks) {
+        try {
+            const res = await fetch(`${SPOTIFY_API_BASE}/recommendations?seed_tracks=${encodeURIComponent(seedTracks)}&market=FR&limit=12`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                items = (data?.tracks || []).map(item => ({
+                    id: item.id || '',
+                    videoId: '',
+                    spotifyId: item.id || '',
+                    title: item.name || '',
+                    artist: Array.isArray(item.artists) ? item.artists[0]?.name || '' : '',
+                    thumb: Array.isArray(item.album?.images) && item.album.images.length > 0 ? item.album.images[0].url : '',
+                    source: 'spotify',
+                    durationMs: item.duration_ms || 180000
+                }));
+            }
+        } catch (err) {
+            console.error('Failed fetching Spotify recommendations in music/recommendations:', err);
+        }
+    }
+    
+    if (items.length === 0) {
+        items = await getOfflineFallbackRecommendations(db);
+    }
+    
+    return c.json({ items });
+});
+
+app.get('/music/trending', checkIPAndAuth, async (c) => {
+    const env = c.env;
+    const db = c.env.DB;
+    const token = await getSpotifyToken(env);
+    const spotifyEnabled = Boolean(token);
+    
+    let items = [];
+    if (spotifyEnabled) {
+        items = await getTopTracks(env, token, 12);
+    }
+    
+    if (items.length === 0) {
+        items = await getOfflineFallbackRecommendations(db);
+    }
+    
+    return c.json({
+        items: items.slice(0, 12),
+        title: "Le Top du Moment — NeonWave",
+        spotifyEnabled
+    });
+});
+
+app.post('/music/history', checkIPAndAuth, async (c) => {
+    const db = c.env.DB;
+    const user = c.get('user');
+    const track = await c.req.json();
+    if (!track?.videoId) return c.json({ error: 'Track invalide.' }, 400);
+
+    const spotifyId = track.spotifyId || track?.spotify?.spotifyId || '';
+    const playEntry = {
+        videoId: track.videoId,
+        spotifyId,
+        localTrackId: track.localTrackId || '',
+        source: track.source || '',
+        streamUrl: track.streamUrl || '',
+        title: track.title || 'Sans titre',
+        artist: track.artist || track.uploaderName || 'Artiste inconnu',
+        thumb: track.thumbnail || track.thumb || '',
+        durationMs: Number(track.durationMs) || 0,
+        playedAt: new Date().toISOString()
+    };
+
+    user.history = user.history || [];
+    user.history.unshift(playEntry);
+    if (user.history.length > 500) user.history.pop();
+    user.recentlyPlayed = [
+        playEntry,
+        ...(user.recentlyPlayed || []).filter((t) => {
+            const currentSpotifyId = t?.spotifyId || '';
+            if (spotifyId && currentSpotifyId) {
+                return currentSpotifyId !== spotifyId;
+            }
+            return t.videoId !== track.videoId;
+        })
+    ].slice(0, 20);
+
+    await saveUser(db, user);
+    return c.json({ success: true });
+});
+
+app.get('/user/history', checkIPAndAuth, async (c) => {
+    const user = c.get('user');
+    return c.json(user.history || []);
+});
+
+app.get('/spotify/artist-profile', checkIPAndAuth, async (c) => {
+    const spotifyId = (c.req.query('spotifyId') || '').trim();
+    const name = (c.req.query('name') || '').trim();
+    const env = c.env;
+    const token = await getSpotifyToken(env);
+    const spotifyEnabled = Boolean(token);
+    
+    let artist = null;
+    let topTracks = [];
+    let discography = { popular: [], albums: [], singles: [] };
+    let relatedArtists = [];
+    let appearsOn = [];
+    
+    if (spotifyEnabled && spotifyId && spotifyId !== 'fallback') {
+        try {
+            const artistRes = await fetch(`${SPOTIFY_API_BASE}/artists/${encodeURIComponent(spotifyId)}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (artistRes.ok) {
+                const artistData = await artistRes.json();
+                artist = {
+                    spotifyId: artistData.id || '',
+                    name: artistData.name || '',
+                    imageUrl: Array.isArray(artistData.images) && artistData.images.length > 0 ? artistData.images[0].url : '',
+                    spotifyUrl: artistData.external_urls?.spotify || '',
+                    genres: Array.isArray(artistData.genres) ? artistData.genres.slice(0, 5) : [],
+                    popularity: artistData.popularity || 0,
+                    followers: artistData.followers?.total || 0,
+                    source: 'spotify'
+                };
+            }
+            
+            const tracksRes = await fetch(`${SPOTIFY_API_BASE}/artists/${encodeURIComponent(spotifyId)}/top-tracks?market=FR`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (tracksRes.ok) {
+                const tracksData = await tracksRes.json();
+                topTracks = (tracksData.tracks || []).map(item => ({
+                    id: item.id || '',
+                    videoId: '',
+                    spotifyId: item.id || '',
+                    title: item.name || '',
+                    artist: Array.isArray(item.artists) ? item.artists[0]?.name || '' : '',
+                    thumb: Array.isArray(item.album?.images) && item.album.images.length > 0 ? item.album.images[0].url : '',
+                    source: 'spotify',
+                    durationMs: item.duration_ms || 180000
+                }));
+            }
+            
+            const albumsRes = await fetch(`${SPOTIFY_API_BASE}/artists/${encodeURIComponent(spotifyId)}/albums?market=FR&limit=30`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (albumsRes.ok) {
+                const albumsData = await albumsRes.json();
+                const items = (albumsData.items || []).map(album => ({
+                    spotifyId: album.id || '',
+                    name: album.name || '',
+                    imageUrl: Array.isArray(album.images) && album.images.length > 0 ? album.images[0].url : '',
+                    spotifyUrl: album.external_urls?.spotify || '',
+                    artists: Array.isArray(album.artists) ? album.artists.map(a => a.name) : [],
+                    releaseDate: album.release_date || '',
+                    totalTracks: album.total_tracks || 0,
+                    type: album.album_type || 'album',
+                    group: album.album_group || album.album_type || 'album',
+                    source: 'spotify'
+                }));
+                
+                discography.albums = items.filter(a => a.group === 'album');
+                discography.singles = items.filter(a => a.group === 'single');
+                discography.popular = items.slice(0, 10);
+            }
+            
+            const relatedRes = await fetch(`${SPOTIFY_API_BASE}/artists/${encodeURIComponent(spotifyId)}/related-artists`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (relatedRes.ok) {
+                const relatedData = await relatedRes.json();
+                relatedArtists = (relatedData.artists || []).slice(0, 8).map(item => ({
+                    spotifyId: item.id || '',
+                    name: item.name || '',
+                    imageUrl: Array.isArray(item.images) && item.images.length > 0 ? item.images[0].url : '',
+                    spotifyUrl: item.external_urls?.spotify || '',
+                    genres: Array.isArray(item.genres) ? item.genres.slice(0, 5) : [],
+                    popularity: item.popularity || 0,
+                    followers: item.followers?.total || 0,
+                    source: 'spotify'
+                }));
+            }
+        } catch (err) {
+            console.error('Failed fetching Spotify artist profile:', err);
+        }
+    }
+    
+    if (!artist && name) {
+        try {
+            const deezerSearchRes = await fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(name)}`);
+            if (deezerSearchRes.ok) {
+                const deezerSearchData = await deezerSearchRes.json();
+                const firstArtist = deezerSearchData?.data?.[0];
+                if (firstArtist) {
+                    artist = {
+                        spotifyId: '',
+                        name: firstArtist.name || name,
+                        imageUrl: firstArtist.picture_big || firstArtist.picture_medium || '',
+                        spotifyUrl: '',
+                        genres: [],
+                        popularity: 0,
+                        followers: firstArtist.nb_fan || 0,
+                        source: 'deezer'
+                    };
+                    
+                    const topRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/top?limit=10`);
+                    if (topRes.ok) {
+                        const topData = await topRes.json();
+                        topTracks = (topData.data || []).map(item => ({
+                            id: item.id || '',
+                            videoId: '',
+                            spotifyId: '',
+                            title: item.title || '',
+                            artist: item.artist?.name || '',
+                            thumb: item.album?.cover_big || item.album?.cover_medium || '',
+                            source: 'deezer',
+                            durationMs: (item.duration || 180) * 1000
+                        }));
+                    }
+                    
+                    const albumsRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/albums?limit=30`);
+                    if (albumsRes.ok) {
+                        const albumsData = await albumsRes.json();
+                        const items = (albumsData.data || []).map(album => ({
+                            spotifyId: '',
+                            name: album.title || '',
+                            imageUrl: album.cover_big || album.cover_medium || '',
+                            spotifyUrl: '',
+                            artists: [artist.name],
+                            releaseDate: album.release_date || '',
+                            totalTracks: album.nb_tracks || 0,
+                            type: 'album',
+                            group: 'album',
+                            source: 'deezer'
+                        }));
+                        discography.albums = items;
+                        discography.popular = items.slice(0, 10);
+                    }
+                }
+            }
+        } catch (deezerErr) {
+            console.error('Deezer fallback artist profile failed:', deezerErr);
+        }
+    }
+    
+    if (!artist) {
+        artist = buildFallbackArtist(name || 'Artiste');
+    }
+    
+    return c.json({
+        item: {
+            artist,
+            topTracks,
+            discography,
+            appearsOn,
+            relatedArtists
+        },
+        spotifyEnabled
+    });
 });
 
 // --- FAVORITES & LIKED TRACKS ---
