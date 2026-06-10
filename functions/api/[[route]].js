@@ -866,12 +866,83 @@ app.get('/deezer/albums/:id', checkIPAndAuth, async (c) => {
 
 // --- YOUTUBE SEARCH & RESOLVING (InnerTube API) ---
 
+function normalizeText(text) {
+    return String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function scoreCandidate(item, expectedTitle, expectedArtist, expectedDurationMs) {
+    let score = 0;
+    const title = normalizeText(item.title);
+    const uploader = normalizeText(item.uploaderName);
+    const expTitle = normalizeText(expectedTitle);
+    const expArtist = normalizeText(expectedArtist);
+
+    // Title matching (most important)
+    if (expTitle && title.includes(expTitle)) score += 50;
+    else if (expTitle) {
+        const words = expTitle.split(' ').filter(w => w.length > 2);
+        const matched = words.filter(w => title.includes(w));
+        score += Math.round((matched.length / Math.max(words.length, 1)) * 30);
+    }
+
+    // Artist matching
+    if (expArtist && (title.includes(expArtist) || uploader.includes(expArtist))) score += 30;
+    else if (expArtist) {
+        const words = expArtist.split(' ').filter(w => w.length > 2);
+        const matched = words.filter(w => uploader.includes(w) || title.includes(w));
+        score += Math.round((matched.length / Math.max(words.length, 1)) * 20);
+    }
+
+    // Prefer "official audio" and "audio" over music videos
+    if (title.includes('official audio') || title.includes('audio officiel')) score += 15;
+    else if (title.includes('audio')) score += 8;
+
+    // Penalize live, remix, cover, karaoke
+    if (title.includes('live') && !expTitle.includes('live')) score -= 20;
+    if (title.includes('remix') && !expTitle.includes('remix')) score -= 15;
+    if (title.includes('cover') && !expTitle.includes('cover')) score -= 20;
+    if (title.includes('karaoke') || title.includes('instrumental')) score -= 25;
+    if (title.includes('slowed') || title.includes('reverb') || title.includes('sped up')) score -= 15;
+
+    // Duration matching (if available)
+    if (expectedDurationMs > 0 && item.duration > 0) {
+        const expectedSec = expectedDurationMs / 1000;
+        const diff = Math.abs(item.duration - expectedSec);
+        if (diff < 5) score += 15;
+        else if (diff < 15) score += 8;
+        else if (diff > 60) score -= 10;
+    }
+
+    // Prefer shorter videos (more likely to be the song, not a compilation)
+    if (item.duration > 600) score -= 10; // > 10 min
+    if (item.duration > 1200) score -= 20; // > 20 min
+
+    return score;
+}
+
+function pickBestResult(items, title, artist, durationMs) {
+    if (!items || items.length === 0) return null;
+    if (items.length === 1) return items[0];
+
+    let best = items[0];
+    let bestScore = -Infinity;
+    for (const item of items.slice(0, 10)) {
+        const s = scoreCandidate(item, title, artist, durationMs);
+        if (s > bestScore) { bestScore = s; best = item; }
+    }
+    return best;
+}
+
 app.get('/music/resolve/:spotifyId', checkIPAndAuth, async (c) => {
-    const title = c.req.query('title');
-    const artist = c.req.query('artist');
-    const query = `${title} ${artist} audio`.trim();
+    const title = c.req.query('title') || '';
+    const artist = c.req.query('artist') || '';
+    const durationMs = parseInt(c.req.query('durationMs') || '0', 10);
+    const query = `${artist} ${title}`.trim();
+    if (!query) return c.json({ error: 'Aucun flux trouvé.' }, 404);
+
     const searchData = await innerTubeSearch(query);
-    const bestItem = searchData?.items?.[0];
+    const bestItem = pickBestResult(searchData?.items, title, artist, durationMs);
     if (bestItem) {
         return c.json({
             videoId: bestItem.videoId,
@@ -884,11 +955,14 @@ app.get('/music/resolve/:spotifyId', checkIPAndAuth, async (c) => {
 });
 
 app.get('/music/resolve-by-metadata', checkIPAndAuth, async (c) => {
-    const title = c.req.query('title');
-    const artist = c.req.query('artist');
-    const query = `${title} ${artist} audio`.trim();
+    const title = c.req.query('title') || '';
+    const artist = c.req.query('artist') || '';
+    const durationMs = parseInt(c.req.query('durationMs') || '0', 10);
+    const query = `${artist} ${title}`.trim();
+    if (!query) return c.json({ error: 'Aucun flux trouvé.' }, 404);
+
     const searchData = await innerTubeSearch(query);
-    const bestItem = searchData?.items?.[0];
+    const bestItem = pickBestResult(searchData?.items, title, artist, durationMs);
     if (bestItem) {
         return c.json({
             videoId: bestItem.videoId,
