@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'neonwave-pwa-1.4.16';
+const CACHE_VERSION = 'neonwave-pwa-1.4.16-v2';
 const APP_SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
