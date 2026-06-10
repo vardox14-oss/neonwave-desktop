@@ -755,8 +755,40 @@ app.get('/spotify/artists/:id/related', checkIPAndAuth, async (c) => {
     }
     
     if (items.length === 0 && fallbackName) {
-        const relatedNames = RELATED_ARTIST_FALLBACKS[fallbackName.toLowerCase()] || [];
-        items = relatedNames.map((name, index) => buildFallbackArtist(name, index));
+        try {
+            const deezerSearchRes = await fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(fallbackName)}`, {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+            });
+            if (deezerSearchRes.ok) {
+                const deezerSearchData = await deezerSearchRes.json();
+                const firstArtist = deezerSearchData?.data?.[0];
+                if (firstArtist) {
+                    const relatedRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/related`, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+                    });
+                    if (relatedRes.ok) {
+                        const relatedData = await relatedRes.json();
+                        items = (relatedData.data || []).slice(0, 8).map(item => ({
+                            spotifyId: '',
+                            name: item.name || '',
+                            imageUrl: item.picture_big || item.picture_medium || '',
+                            spotifyUrl: '',
+                            genres: [],
+                            popularity: 0,
+                            followers: item.nb_fan || 0,
+                            source: 'deezer'
+                        }));
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Deezer related artists fallback failed:', err);
+        }
+
+        if (items.length === 0) {
+            const relatedNames = RELATED_ARTIST_FALLBACKS[fallbackName.toLowerCase()] || [];
+            items = relatedNames.map((name, index) => buildFallbackArtist(name, index));
+        }
     }
     
     return c.json({ items, spotifyEnabled });
@@ -987,7 +1019,52 @@ app.get('/user/recommendations', checkIPAndAuth, async (c) => {
     }
     
     if (items.length === 0) {
-        items = await getOfflineFallbackRecommendations(db);
+        const prefArtists = user.musicPreferences?.artists || [];
+        if (prefArtists.length > 0) {
+            try {
+                const shuffled = [...prefArtists].sort(() => Math.random() - 0.5).slice(0, 3);
+                for (const artistObj of shuffled) {
+                    if (!artistObj.name) continue;
+                    const deezerSearchRes = await fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(artistObj.name)}`, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+                    });
+                    if (deezerSearchRes.ok) {
+                        const deezerSearchData = await deezerSearchRes.json();
+                        const firstArtist = deezerSearchData?.data?.[0];
+                        if (firstArtist) {
+                            const topRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/top?limit=6`, {
+                                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+                            });
+                            if (topRes.ok) {
+                                const topData = await topRes.json();
+                                const tracks = (topData.data || []).map(item => ({
+                                    id: item.id || '',
+                                    videoId: '',
+                                    spotifyId: '',
+                                    title: item.title || '',
+                                    artist: item.artist?.name || '',
+                                    thumb: item.album?.cover_big || item.album?.cover_medium || '',
+                                    source: 'deezer',
+                                    durationMs: (item.duration || 180) * 1000
+                                }));
+                                items.push(...tracks);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Deezer recommendations fallback failed:', err);
+            }
+        }
+    }
+    
+    if (items.length < 12) {
+        const offline = await getOfflineFallbackRecommendations(db);
+        offline.forEach(track => {
+            if (items.length < 12 && !items.some(t => t.title.toLowerCase() === track.title.toLowerCase())) {
+                items.push(track);
+            }
+        });
     }
     
     return c.json({
@@ -1029,6 +1106,47 @@ app.get('/music/recommendations', checkIPAndAuth, async (c) => {
         }
     }
     
+    if (token && seedTracks && items.length === 0) {
+        try {
+            const trackRes = await fetch(`${SPOTIFY_API_BASE}/tracks/${encodeURIComponent(seedTracks)}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (trackRes.ok) {
+                const trackData = await trackRes.json();
+                const artistName = trackData.artists?.[0]?.name;
+                if (artistName) {
+                    const deezerSearchRes = await fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(artistName)}`, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+                    });
+                    if (deezerSearchRes.ok) {
+                        const deezerSearchData = await deezerSearchRes.json();
+                        const firstArtist = deezerSearchData?.data?.[0];
+                        if (firstArtist) {
+                            const topRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/top?limit=12`, {
+                                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+                            });
+                            if (topRes.ok) {
+                                const topData = await topRes.json();
+                                items = (topData.data || []).map(item => ({
+                                    id: item.id || '',
+                                    videoId: '',
+                                    spotifyId: '',
+                                    title: item.title || '',
+                                    artist: item.artist?.name || '',
+                                    thumb: item.album?.cover_big || item.album?.cover_medium || '',
+                                    source: 'deezer',
+                                    durationMs: (item.duration || 180) * 1000
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Failed Deezer recommendations fallback by resolving seed track:', err);
+        }
+    }
+    
     if (items.length === 0) {
         items = await getOfflineFallbackRecommendations(db);
     }
@@ -1045,6 +1163,31 @@ app.get('/music/trending', checkIPAndAuth, async (c) => {
     let items = [];
     if (spotifyEnabled) {
         items = await getTopTracks(env, token, 12);
+    }
+    
+    if (items.length === 0) {
+        try {
+            const chartRes = await fetch('https://api.deezer.com/chart/0/tracks?limit=15', {
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+            });
+            if (chartRes.ok) {
+                const chartData = await chartRes.json();
+                if (Array.isArray(chartData.data) && chartData.data.length > 0) {
+                    items = chartData.data.map(item => ({
+                        id: item.id || '',
+                        videoId: '',
+                        spotifyId: '',
+                        title: item.title || '',
+                        artist: item.artist?.name || '',
+                        thumb: item.album?.cover_big || item.album?.cover_medium || '',
+                        source: 'deezer',
+                        durationMs: (item.duration || 180) * 1000
+                    }));
+                }
+            }
+        } catch (err) {
+            console.error('Deezer charts fallback failed:', err);
+        }
     }
     
     if (items.length === 0) {
@@ -1206,7 +1349,7 @@ app.get('/spotify/artist-profile', checkIPAndAuth, async (c) => {
         }
     }
     
-    if (!artist && name) {
+    if ((!artist || topTracks.length === 0) && name) {
         try {
             const deezerSearchRes = await fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(name)}`, {
                 headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
@@ -1215,16 +1358,20 @@ app.get('/spotify/artist-profile', checkIPAndAuth, async (c) => {
                 const deezerSearchData = await deezerSearchRes.json();
                 const firstArtist = deezerSearchData?.data?.[0];
                 if (firstArtist) {
-                    artist = {
-                        spotifyId: '',
-                        name: firstArtist.name || name,
-                        imageUrl: firstArtist.picture_big || firstArtist.picture_medium || '',
-                        spotifyUrl: '',
-                        genres: [],
-                        popularity: 0,
-                        followers: firstArtist.nb_fan || 0,
-                        source: 'deezer'
-                    };
+                    if (!artist) {
+                        artist = {
+                            spotifyId: '',
+                            name: firstArtist.name || name,
+                            imageUrl: firstArtist.picture_big || firstArtist.picture_medium || '',
+                            spotifyUrl: '',
+                            genres: [],
+                            popularity: 0,
+                            followers: firstArtist.nb_fan || 0,
+                            source: 'deezer'
+                        };
+                    } else if (!artist.imageUrl && (firstArtist.picture_big || firstArtist.picture_medium)) {
+                        artist.imageUrl = firstArtist.picture_big || firstArtist.picture_medium;
+                    }
                     
                     const topRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/top?limit=10`, {
                         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
@@ -1262,6 +1409,25 @@ app.get('/spotify/artist-profile', checkIPAndAuth, async (c) => {
                         }));
                         discography.albums = items;
                         discography.popular = items.slice(0, 10);
+                    }
+
+                    if (relatedArtists.length === 0) {
+                        const relatedRes = await fetch(`https://api.deezer.com/artist/${firstArtist.id}/related`, {
+                            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36' }
+                        });
+                        if (relatedRes.ok) {
+                            const relatedData = await relatedRes.json();
+                            relatedArtists = (relatedData.data || []).slice(0, 8).map(item => ({
+                                spotifyId: '',
+                                name: item.name || '',
+                                imageUrl: item.picture_big || item.picture_medium || '',
+                                spotifyUrl: '',
+                                genres: [],
+                                popularity: 0,
+                                followers: item.nb_fan || 0,
+                                source: 'deezer'
+                            }));
+                        }
                     }
                 }
             }
