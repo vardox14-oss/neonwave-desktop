@@ -995,8 +995,20 @@ app.get('/music/streams/:id', checkIPAndAuth, async (c) => {
     ].slice(0, 20);
     await saveUser(db, user);
 
-    // Redirect to our custom VPS proxy using yt-dlp with cookies
-    return c.redirect(`http://80.241.223.11:4000/api/stream/${videoId}`, 307);
+    // Fetch the stream URL from the VPS proxy server-side to avoid Mixed Content (HTTP vs HTTPS)
+    try {
+        const proxyUrl = `http://80.241.223.11:4000/api/stream/${videoId}`;
+        const proxyRes = await fetch(proxyUrl, { redirect: 'manual' });
+        
+        const location = proxyRes.headers.get('location');
+        if (location) {
+            return c.redirect(location, 307);
+        }
+    } catch (err) {
+        console.error('VPS proxy error:', err);
+    }
+    
+    return c.json({ error: 'Stream indisponible' }, 404);
 });
 
 // --- USER RECAPS & PREFERENCES ---
