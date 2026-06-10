@@ -18,7 +18,9 @@ const Auth = {
         }
 
         const data = await response.json();
-        localStorage.removeItem('token');
+        if (data.token) {
+            localStorage.setItem('token', data.token);
+        }
         localStorage.setItem('user', JSON.stringify(data.user));
         return data;
     },
@@ -37,7 +39,9 @@ const Auth = {
             }
 
             const data = await response.json();
-            localStorage.removeItem('token');
+            if (data.token) {
+                localStorage.setItem('token', data.token);
+            }
             localStorage.setItem('user', JSON.stringify(data.user));
             return data;
         } catch (err) {
@@ -60,7 +64,9 @@ const Auth = {
             }
 
             const data = await response.json();
-            localStorage.removeItem('token');
+            if (data.token) {
+                localStorage.setItem('token', data.token);
+            }
             localStorage.setItem('user', JSON.stringify(data.user));
             return data;
         } catch (err) {
@@ -80,11 +86,10 @@ const Auth = {
 
     async checkAuth() {
         try {
-            const headers = { 'Content-Type': 'application/json' };
+            const headers = Auth.getAuthHeaders();
             const response = await fetch('/api/auth/me', { headers });
             if (!response.ok) throw new Error();
             const data = await response.json();
-            localStorage.removeItem('token');
             localStorage.setItem('user', JSON.stringify(data.user));
             return true;
         } catch (err) {
@@ -103,7 +108,12 @@ const Auth = {
     },
 
     getAuthHeaders() {
-        return { 'Content-Type': 'application/json' };
+        const token = localStorage.getItem('token');
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        return headers;
     }
 };
 
