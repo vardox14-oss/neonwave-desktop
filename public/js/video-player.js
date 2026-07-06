@@ -38,6 +38,47 @@ const NowPlayingPanel = {
         }
     },
 
+    // Charge le Canvas Spotify (boucle vidéo) du morceau et l'affiche en fond.
+    // Réservé à l'app desktop connectée à Spotify ; sinon on reste sur la pochette.
+    async loadCanvas(track) {
+        const video = document.getElementById('npCanvasVideo');
+        const container = video && video.closest('.np-cover-container');
+        if (!video || !container) return;
+
+        // Réinitialise à chaque morceau
+        this.canvasToken = (this.canvasToken || 0) + 1;
+        const requestId = this.canvasToken;
+        container.classList.remove('has-canvas');
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+
+        const spotifyId = track && (track.spotifyId || (typeof track.id === 'string' && track.id.length === 22 ? track.id : ''));
+        if (!spotifyId || !window.NeonWaveDesktop) return;
+
+        try {
+            const res = await fetch(`/api/spotify/canvas/${encodeURIComponent(spotifyId)}`, {
+                headers: Auth.getAuthHeaders ? Auth.getAuthHeaders() : { 'Authorization': `Bearer ${Auth.getToken()}` }
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            // Morceau a changé entre-temps -> on abandonne
+            if (requestId !== this.canvasToken) return;
+            if (!data.canvasUrl) return;
+
+            video.src = data.canvasUrl;
+            video.muted = true; // requis pour l'autoplay sans geste utilisateur
+            video.play().then(() => {
+                if (requestId === this.canvasToken) container.classList.add('has-canvas');
+            }).catch(() => {
+                // Autoplay refusé : on affiche quand même la 1re frame en fond
+                if (requestId === this.canvasToken) container.classList.add('has-canvas');
+            });
+        } catch (err) {
+            console.warn('Canvas load error:', err);
+        }
+    },
+
     ensureFavoriteButtons() {
         const createButton = (id, className) => {
             const button = document.createElement('button');
@@ -193,12 +234,12 @@ const NowPlayingPanel = {
         const title = track.title || 'Sans titre';
         const artist = track.artist || 'Artiste inconnu';
 
-        ['npTitle', 'npTitleAlt', 'mpTitle'].forEach((id) => {
+        ['npTitle', 'npTitleAlt', 'mpTitle', 'npStageTitle'].forEach((id) => {
             const node = document.getElementById(id);
             if (node) node.textContent = title;
         });
 
-        ['npArtist', 'npArtistAlt', 'mpArtist'].forEach((id) => {
+        ['npArtist', 'npArtistAlt', 'mpArtist', 'npStageArtist'].forEach((id) => {
             const node = document.getElementById(id);
             if (node) node.textContent = artist;
         });
@@ -227,6 +268,7 @@ const NowPlayingPanel = {
         this.setVideoButtonLabel('Cover');
         this.updateFavoriteState(track);
         this.renderQueuePreview();
+        this.loadCanvas(track);
     },
 
     toggleVideo() {

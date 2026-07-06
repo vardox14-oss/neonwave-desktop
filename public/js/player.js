@@ -433,8 +433,11 @@ const Player = {
         const slider = document.getElementById('volumeSlider');
         const button = document.getElementById('volumeToggleBtn');
 
-        if (slider && String(slider.value) !== String(volume)) {
-            slider.value = String(volume);
+        if (slider) {
+            if (String(slider.value) !== String(volume)) {
+                slider.value = String(volume);
+            }
+            slider.style.setProperty('--fill', `${volume}%`);
         }
 
         if (button) {
@@ -957,7 +960,8 @@ const Player = {
             'npCreditsArtist': track.artist || '—',
             'mpDiscoverName': track.artist || 'L\'Artiste',
             'mpDiscoverBg': (el) => { el.style.backgroundImage = `url("${track.thumb}")`; },
-            'playerThumb': (el) => { const img = el.querySelector('img'); if (img) img.src = track.thumb; }
+            'playerThumb': (el) => { const img = el.querySelector('img'); if (img) img.src = track.thumb; },
+            'playerAmbient': (el) => { if (track.thumb) el.style.backgroundImage = `url("${track.thumb}")`; }
         };
 
         Object.keys(commonMap).forEach(id => {
@@ -1444,7 +1448,10 @@ const Player = {
         
         document.getElementById('playIcon').style.display = playing ? 'none' : 'block';
         document.getElementById('pauseIcon').style.display = playing ? 'block' : 'none';
-        
+
+        // Pilote les animations CSS (égaliseur, lueur ambiante, halo du bouton play)
+        document.body.classList.toggle('nw-playing', playing);
+
         // Sync mp icons
         const mpPlayIcon = document.getElementById('mpPlayIcon');
         const mpPauseIcon = document.getElementById('mpPauseIcon');
@@ -1794,8 +1801,8 @@ const Player = {
                 const mpDurText = document.getElementById('mpDuration');
                 
                 const percent = (currentTime / duration) * 100;
-                if (slider) slider.value = percent;
-                if (mpSlider) mpSlider.value = percent;
+                if (slider) { slider.value = percent; slider.style.setProperty('--fill', `${percent}%`); }
+                if (mpSlider) { mpSlider.value = percent; mpSlider.style.setProperty('--fill', `${percent}%`); }
                 
                 const formattedTime = this.formatTime(currentTime);
                 const formattedFull = this.formatTime(duration);
@@ -1837,6 +1844,7 @@ const Player = {
         document.getElementById('nextBtn')?.addEventListener('click', () => this.nextTrack());
 
         const handleScrub = (e) => {
+            e.target.style.setProperty('--fill', `${e.target.value}%`);
             const duration = this.getActiveDuration();
             if (!duration) return;
             this.seekActiveMedia((e.target.value / 100) * duration);
@@ -1846,9 +1854,14 @@ const Player = {
         document.getElementById('progressSlider')?.addEventListener('input', handleScrub);
         document.getElementById('mpProgressSlider')?.addEventListener('input', handleScrub);
 
-        document.getElementById('volumeSlider')?.addEventListener('input', (e) => {
-            this.setVolume(e.target.value);
-        });
+        const volumeSlider = document.getElementById('volumeSlider');
+        if (volumeSlider) {
+            volumeSlider.style.setProperty('--fill', `${volumeSlider.value}%`);
+            volumeSlider.addEventListener('input', (e) => {
+                e.target.style.setProperty('--fill', `${e.target.value}%`);
+                this.setVolume(e.target.value);
+            });
+        }
 
         // Load data
         this.loadResolvedVideoCache();
@@ -1979,6 +1992,18 @@ class MockYTPlayer {
         
         this.audio.addEventListener('error', (e) => {
             console.error('Audio element error:', e);
+
+            // Un seul nouvel essai (URL googlevideo expirée -> re-résolution serveur)
+            if (this.currentVideoId && !this.triedStreamRetry) {
+                this.triedStreamRetry = true;
+                console.warn('Retrying stream...');
+                const token = localStorage.getItem('token') || '';
+                this.audio.src = `/api/music/streams/${this.currentVideoId}?token=${token}&t=${Date.now()}`;
+                this.audio.load();
+                this.audio.play().catch(() => {});
+                return;
+            }
+
             if (this.events.onError) {
                 this.events.onError({ data: 1 }); // generic error code
             }
@@ -2004,6 +2029,7 @@ class MockYTPlayer {
         }
         
         this.currentVideoId = videoId;
+        this.triedStreamRetry = false;
         const token = localStorage.getItem('token') || '';
         this.audio.src = `/api/music/streams/${videoId}?token=${token}`;
         this.audio.load();
@@ -2205,6 +2231,12 @@ window.Karaoke = {
     },
 
     updateBackground(imageUrl) {
+        const overlay = document.getElementById('karaokeOverlay');
+        // Alimente les couches de pochette animées en arrière-plan
+        if (overlay) {
+            overlay.style.setProperty('--karaoke-artwork', imageUrl ? `url("${imageUrl}")` : 'none');
+        }
+
         if (!imageUrl) {
             this.setBackgroundColors(20, 24, 38);
             return;

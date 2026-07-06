@@ -10,3 +10,14 @@ local-data-backups/
 *.tmp
 *.bak
 src/database.local*.json
+
+# Fichiers de test / parasites
+*player-script.js
+scratch/
+# Binaire yt-dlp (téléchargé au 1er lancement)
+yt-dlp.exe
+*.download
+# Session Spotify (contient le cookie sp_dc — NE JAMAIS committer)
+spotify-session.json
+# Sorties de build
+build-cache/

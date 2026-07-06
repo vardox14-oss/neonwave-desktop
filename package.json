@@ -1,6 +1,6 @@
 {
   "name": "neonwave-backend",
-  "version": "1.4.16",
+  "version": "1.5.0",
   "description": "NeonWave Music Streaming API",
   "author": "NeonWave",
   "main": "main.js",
@@ -24,7 +24,8 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.1.0",
     "hono": "^4.12.25",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "youtubei.js": "^17.2.0"
   },
   "devDependencies": {
     "electron": "^42.3.3",
@@ -48,6 +49,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "spotify-preload.js",
       "package.json",
       "build/**/*",
       "src/**/*",

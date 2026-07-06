@@ -8,7 +8,11 @@ contextBridge.exposeInMainWorld('NeonWaveDesktop', {
         ipcRenderer.on('updater:status', (event, status, details) => callback(status, details));
     },
     installUpdate: () => ipcRenderer.invoke('updater:install'),
-    getVersion: () => ipcRenderer.invoke('app:version')
+    getVersion: () => ipcRenderer.invoke('app:version'),
+    // Intégration Spotify (Canvas vidéo de fond)
+    spotifyConnect: () => ipcRenderer.invoke('spotify:connect'),
+    spotifyDisconnect: () => ipcRenderer.invoke('spotify:disconnect'),
+    spotifyStatus: () => ipcRenderer.invoke('spotify:status')
 });
 
 window.addEventListener('DOMContentLoaded', () => {

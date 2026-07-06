@@ -4500,9 +4500,66 @@ input[type="range"]::-webkit-slider-thumb {
 .karaoke-bg-gradient {
     position: absolute;
     inset: 0;
-    z-index: -2;
+    z-index: -4;
     background: linear-gradient(135deg, var(--karaoke-color-dark) 0%, var(--karaoke-color-primary) 50%, var(--karaoke-color-dark) 100%);
     transition: background 1.5s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* --- Pochette vivante en arrière-plan (style Apple Music) --- */
+.karaoke-bg-artwork {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 70vmax;
+    height: 70vmax;
+    z-index: -3;
+    background-image: var(--karaoke-artwork, none);
+    background-size: cover;
+    background-position: center;
+    border-radius: 42%;
+    filter: blur(80px) saturate(260%) brightness(1.05);
+    opacity: 0.85;
+    will-change: transform;
+    transform: translate(-50%, -50%);
+    animation: nwKaraokeSpin 40s linear infinite;
+    transition: background-image 0.8s ease;
+    pointer-events: none;
+}
+.karaoke-bg-artwork-2 {
+    width: 90vmax;
+    height: 90vmax;
+    filter: blur(120px) saturate(230%);
+    opacity: 0.6;
+    animation: nwKaraokeSpinReverse 58s linear infinite, nwKaraokePulse 16s ease-in-out infinite alternate;
+}
+
+@keyframes nwKaraokeSpin {
+    0%   { transform: translate(-50%, -50%) rotate(0deg) scale(1); }
+    50%  { transform: translate(-46%, -54%) rotate(180deg) scale(1.12); }
+    100% { transform: translate(-50%, -50%) rotate(360deg) scale(1); }
+}
+@keyframes nwKaraokeSpinReverse {
+    0%   { transform: translate(-50%, -50%) rotate(0deg); }
+    100% { transform: translate(-50%, -50%) rotate(-360deg); }
+}
+@keyframes nwKaraokePulse {
+    0%   { opacity: 0.45; }
+    100% { opacity: 0.72; }
+}
+
+/* Voile : laisse vivre la couleur de la pochette tout en gardant les paroles nettes */
+.karaoke-bg-veil {
+    position: absolute;
+    inset: 0;
+    z-index: -2;
+    background:
+        radial-gradient(ellipse 65% 55% at 50% 45%, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.42) 100%),
+        linear-gradient(180deg, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.40));
+    pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .karaoke-bg-artwork { animation: none !important; }
 }
 
 .karaoke-bg-glow {
@@ -6344,4 +6401,472 @@ html.is-ios select {
         padding-top: env(safe-area-inset-top);
         padding-bottom: calc(20px + env(safe-area-inset-bottom));
     }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NEONWAVE POLISH 2026 — lueur ambiante, égaliseur, micro-animations
+   ═══════════════════════════════════════════════════════════════ */
+
+/* --- Lueur ambiante : la pochette diffuse sa couleur derrière le player --- */
+.player-footer {
+    position: relative;
+    overflow: hidden;
+}
+.player-footer > * {
+    position: relative;
+    z-index: 1;
+}
+.player-ambient {
+    position: absolute;
+    inset: -40px;
+    z-index: 0;
+    background-size: cover;
+    background-position: center;
+    filter: blur(60px) saturate(190%) brightness(0.9);
+    opacity: 0;
+    transform: scale(1.2);
+    transition: opacity 1.2s ease, background-image 0.6s ease;
+    pointer-events: none;
+}
+body.nw-playing .player-ambient {
+    opacity: 0.32;
+}
+
+/* --- Égaliseur animé sur la vignette en lecture --- */
+.thumb-eq {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 3px;
+    padding-bottom: 7px;
+    background: linear-gradient(to top, rgba(5, 8, 15, 0.72), rgba(5, 8, 15, 0.05) 65%);
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+}
+.thumb-eq span {
+    width: 3px;
+    height: 6px;
+    border-radius: 2px;
+    background: var(--accent-glow);
+    box-shadow: 0 0 6px rgba(147, 197, 253, 0.8);
+    transform-origin: bottom;
+}
+body.nw-playing .thumb-eq {
+    opacity: 1;
+}
+body.nw-playing .thumb-eq span {
+    animation: nwEqBounce 0.9s ease-in-out infinite;
+}
+body.nw-playing .thumb-eq span:nth-child(2) { animation-duration: 0.7s; animation-delay: 0.15s; }
+body.nw-playing .thumb-eq span:nth-child(3) { animation-duration: 1.1s; animation-delay: 0.05s; }
+body.nw-playing .thumb-eq span:nth-child(4) { animation-duration: 0.8s; animation-delay: 0.25s; }
+
+@keyframes nwEqBounce {
+    0%, 100% { height: 5px; }
+    35%      { height: 16px; }
+    60%      { height: 9px; }
+    80%      { height: 14px; }
+}
+
+/* --- Halo pulsant du bouton play pendant la lecture --- */
+body.nw-playing .play-pause-btn {
+    animation: nwPlayGlow 2.6s ease-in-out infinite;
+}
+@keyframes nwPlayGlow {
+    0%, 100% { box-shadow: 0 2px 12px rgba(79, 140, 255, 0.35); }
+    50%      { box-shadow: 0 2px 24px rgba(96, 165, 250, 0.65), 0 0 40px rgba(59, 130, 246, 0.25); }
+}
+
+/* --- Sliders avec remplissage dégradé (progression + volume) --- */
+#progressSlider,
+#mpProgressSlider,
+#volumeSlider {
+    background: linear-gradient(
+        to right,
+        var(--accent) 0%,
+        var(--accent-bright) var(--fill, 0%),
+        rgba(79, 140, 255, 0.18) var(--fill, 0%)
+    );
+}
+#progressSlider:hover,
+#mpProgressSlider:hover,
+#volumeSlider:hover {
+    background: linear-gradient(
+        to right,
+        var(--accent-bright) 0%,
+        var(--accent-glow) var(--fill, 0%),
+        rgba(79, 140, 255, 0.3) var(--fill, 0%)
+    );
+}
+
+/* --- Transition douce entre les vues --- */
+#homeView, #searchView, #albumView, #libraryView, #playlistView, #artistView {
+    animation: nwViewIn 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@keyframes nwViewIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+#homeView.hidden, #searchView.hidden, #albumView.hidden,
+#libraryView.hidden, #playlistView.hidden, #artistView.hidden {
+    animation: none;
+}
+
+/* --- Titre en lecture : léger dégradé lumineux --- */
+body.nw-playing .footer-left .title {
+    background: linear-gradient(90deg, #ffffff, var(--accent-glow));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* --- Respect des préférences d'accessibilité --- */
+@media (prefers-reduced-motion: reduce) {
+    .thumb-eq span,
+    .play-pause-btn,
+    #homeView, #searchView, #albumView, #libraryView, #playlistView, #artistView {
+        animation: none !important;
+    }
+    .player-ambient { transition: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VERRE DÉPOLI (GLASSMORPHISM) — NeonWave 2026
+   Surfaces translucides + flou fort + fond mesh coloré animé.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+    --glass: rgba(18, 26, 48, 0.40);
+    --glass-strong: rgba(12, 18, 34, 0.62);
+    --glass-border: rgba(255, 255, 255, 0.10);
+    --glass-blur: saturate(180%) blur(30px);
+    --glass-blur-soft: saturate(160%) blur(16px);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    --glass-shadow: 0 10px 34px rgba(0, 0, 0, 0.38);
+}
+
+/* --- Fond mesh coloré animé : la matière visible à travers le verre --- */
+body::after {
+    background:
+        radial-gradient(42% 52% at 14% 18%, rgba(59, 130, 246, 0.34), transparent 60%),
+        radial-gradient(36% 46% at 86% 12%, rgba(139, 92, 246, 0.30), transparent 60%),
+        radial-gradient(48% 58% at 78% 84%, rgba(34, 211, 238, 0.22), transparent 62%),
+        radial-gradient(40% 50% at 22% 92%, rgba(236, 72, 153, 0.18), transparent 60%),
+        linear-gradient(180deg, rgba(6, 10, 20, 0.15), rgba(6, 10, 20, 0.52));
+    animation: nwGlassDrift 26s ease-in-out infinite alternate;
+    will-change: transform;
+}
+body.has-ambient-artwork::after { opacity: 0.96; }
+
+@keyframes nwGlassDrift {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    50%  { transform: translate3d(1.5%, -2%, 0) scale(1.06); }
+    100% { transform: translate3d(-1.5%, -3.5%, 0) scale(1.1); }
+}
+
+/* --- Grandes surfaces en verre --- */
+.sidebar,
+.main-content,
+.now-playing-panel {
+    background: var(--glass) !important;
+    backdrop-filter: var(--glass-blur) !important;
+    -webkit-backdrop-filter: var(--glass-blur) !important;
+    border: 1px solid var(--glass-border) !important;
+    box-shadow: var(--glass-highlight), var(--glass-shadow) !important;
+}
+
+/* --- Barres flottantes (header, player, nav mobile) --- */
+.top-bar {
+    background: rgba(10, 14, 26, 0.32) !important;
+    backdrop-filter: var(--glass-blur) !important;
+    -webkit-backdrop-filter: var(--glass-blur) !important;
+    border-bottom: 1px solid var(--glass-border) !important;
+    box-shadow: var(--glass-highlight) !important;
+}
+.player-footer {
+    background: rgba(10, 14, 26, 0.38) !important;
+    backdrop-filter: var(--glass-blur) !important;
+    -webkit-backdrop-filter: var(--glass-blur) !important;
+    border-top: 1px solid var(--glass-border) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+}
+.mobile-nav {
+    background: rgba(10, 14, 26, 0.55) !important;
+    backdrop-filter: var(--glass-blur) !important;
+    -webkit-backdrop-filter: var(--glass-blur) !important;
+    border-top: 1px solid var(--glass-border) !important;
+}
+
+/* --- Cartes en verre clair, hover premium avec halo néon --- */
+.track-card,
+.shortcut-card {
+    background: rgba(255, 255, 255, 0.05) !important;
+    backdrop-filter: var(--glass-blur-soft) !important;
+    -webkit-backdrop-filter: var(--glass-blur-soft) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: var(--glass-highlight), 0 4px 18px rgba(0, 0, 0, 0.22) !important;
+    transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.28s ease, background 0.28s ease, border-color 0.28s ease !important;
+}
+.track-card:hover,
+.shortcut-card:hover {
+    background: rgba(255, 255, 255, 0.10) !important;
+    border-color: rgba(147, 197, 253, 0.42) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.22),
+        0 16px 40px rgba(0, 0, 0, 0.42),
+        0 0 28px rgba(96, 165, 250, 0.28) !important;
+    transform: translateY(-5px) !important;
+}
+
+/* --- Fenêtres modales en verre profond --- */
+.modal-content {
+    background: var(--glass-strong) !important;
+    backdrop-filter: var(--glass-blur) !important;
+    -webkit-backdrop-filter: var(--glass-blur) !important;
+    border: 1px solid var(--glass-border) !important;
+    box-shadow: var(--glass-highlight), 0 30px 60px rgba(0, 0, 0, 0.55) !important;
+}
+.modal-overlay { background: rgba(4, 8, 15, 0.55) !important; backdrop-filter: blur(6px) !important; }
+
+/* --- Champs de saisie translucides --- */
+.neon-input {
+    background: rgba(255, 255, 255, 0.06) !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+}
+.neon-input:focus {
+    background: rgba(255, 255, 255, 0.10) !important;
+    border-color: rgba(147, 197, 253, 0.5) !important;
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18) !important;
+}
+
+/* --- Vignette lecture & panneaux surélevés cohérents --- */
+.footer-left .thumb,
+.np-artwork,
+.mp-cover {
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45), var(--glass-highlight) !important;
+}
+
+/* --- Puces / filtres en verre --- */
+.sidebar-filter-btn,
+.artist-follow-btn,
+.artist-spotify-link {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+/* --- Scrollbars discrètes sur verre --- */
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.24); }
+
+@media (prefers-reduced-motion: reduce) {
+    body::after { animation: none; }
+}
+
+/* --- Fix : masquer TOUTE l'app derrière quand le mode paroles plein écran est ouvert --- */
+/* Les surfaces en verre (backdrop-filter) « perçaient » à travers l'overlay karaoké.
+   display:none (et pas visibility) car des enfants forcent visibility:visible.
+   L'audio n'est pas dans le DOM du lecteur -> la lecture continue normalement. */
+body:has(.karaoke-overlay.active) .app-container {
+    display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INTÉGRATION SPOTIFY — connexion + Canvas vidéo de fond
+   ═══════════════════════════════════════════════════════════════ */
+
+/* --- Panneau de connexion Spotify (Paramètres) --- */
+.spotify-connect-panel {
+    margin-top: 16px;
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(29, 185, 84, 0.22);
+    background: linear-gradient(145deg, rgba(29, 185, 84, 0.10), rgba(14, 20, 38, 0.5));
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.spotify-connect-panel.is-connected {
+    border-color: rgba(29, 185, 84, 0.5);
+    background: linear-gradient(145deg, rgba(29, 185, 84, 0.18), rgba(14, 20, 38, 0.5));
+}
+.spotify-connect-head { display: flex; align-items: center; gap: 12px; }
+.spotify-connect-head strong { display: block; color: #fff; font-size: 0.98rem; }
+.spotify-connect-head p { margin-top: 3px; font-size: 0.76rem; color: var(--text-secondary); line-height: 1.35; }
+.spotify-connect-btn {
+    width: 100%;
+    padding: 11px;
+    border-radius: 999px;
+    border: none;
+    cursor: pointer;
+    font-weight: 800;
+    font-size: 0.85rem;
+    color: #fff;
+    background: #1DB954;
+    transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+.spotify-connect-btn:hover { transform: translateY(-1px); background: #1ed760; }
+.spotify-connect-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+.spotify-connect-panel.is-connected .spotify-connect-btn {
+    background: rgba(255, 255, 255, 0.10);
+}
+.spotify-connect-panel.is-connected .spotify-connect-btn:hover {
+    background: rgba(255, 90, 90, 0.20);
+}
+
+/* ═══ Now Playing immersif : Canvas en fond de TOUT le panneau (façon Spotify) ═══ */
+
+/* Le panneau ne scrolle plus lui-même : la vidéo reste fixe, le contenu scrolle. */
+.now-playing-panel.visible {
+    position: relative;
+    overflow: hidden !important;
+    padding: 0 !important;
+}
+
+/* Couche vidéo/pochette : fixe, couvre tout le panneau, derrière le contenu */
+.np-video-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    background: #05070d;
+}
+.np-video-bg .np-cover-container {
+    position: absolute !important;
+    inset: 0 !important;
+    margin: 0 !important;
+    aspect-ratio: auto !important;
+    border-radius: 0 !important;
+    background: #05070d !important;
+    box-shadow: none !important;
+}
+.np-video-bg #npCoverImg,
+.np-video-bg .np-canvas-video {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    border-radius: 0 !important;
+}
+.np-canvas-video {
+    opacity: 0;
+    transition: opacity 0.7s ease;
+    pointer-events: none;
+    z-index: 2;
+}
+.np-cover-container.has-canvas .np-canvas-video { opacity: 1; }
+.np-cover-container.has-canvas #npCoverImg { opacity: 0.4; }
+
+/* Voile : laisse voir la vidéo en haut, assombrit vers le bas pour lire le contenu */
+.np-bg-veil {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    background: linear-gradient(180deg,
+        rgba(5,7,13,0.30) 0%,
+        rgba(5,7,13,0.05) 20%,
+        rgba(9,14,26,0.45) 48%,
+        rgba(9,14,26,0.80) 70%,
+        rgba(10,14,26,0.94) 100%);
+}
+
+/* Contenu scrollable par-dessus la vidéo */
+.np-scroll {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0 20px 22px;
+    scrollbar-width: none;
+}
+.np-scroll::-webkit-scrollbar { width: 0; }
+
+.np-scroll .np-header {
+    padding: 16px 0 !important;
+    margin: 0 !important;
+}
+.np-scroll .np-header .np-title-top,
+.np-scroll .np-header .np-session-caption {
+    text-shadow: 0 2px 10px rgba(0,0,0,0.7);
+}
+
+/* Zone titre transparente : laisse voir la vidéo, titre posé en bas */
+#npStage {
+    position: relative !important;
+    min-height: 0 !important;
+    height: 46vh;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    display: flex;
+    align-items: flex-end;
+}
+.np-stage-title {
+    position: relative;
+    z-index: 1;
+    padding-bottom: 10px;
+    pointer-events: none;
+}
+.np-stage-title .t {
+    font-size: 1.8rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: #fff;
+    line-height: 1.1;
+    text-shadow: 0 2px 22px rgba(0,0,0,0.75);
+    margin-bottom: 5px;
+}
+.np-stage-title .a {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: rgba(255,255,255,0.88);
+    text-shadow: 0 2px 16px rgba(0,0,0,0.75);
+}
+
+/* Titre séparé redondant -> masqué (le titre est sur la vidéo) */
+.now-playing-panel .np-track-info { display: none; }
+
+/* Cartes (paroles, à suivre…) translucides pour laisser transparaître la vidéo */
+.np-scroll .np-lyrics-container,
+.np-scroll .np-queue-box,
+.np-scroll .mp-discover-card {
+    background: rgba(10, 14, 26, 0.42) !important;
+    backdrop-filter: blur(18px) saturate(160%) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   THÈME DYNAMIQUE — toute l'app se teinte avec la couleur de la pochette
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+    --nw-cover-r: 59;
+    --nw-cover-g: 130;
+    --nw-cover-b: 246;
+}
+
+/* Le fond mesh (orbes) prend la couleur dominante de la pochette en cours */
+body.has-cover-theme::after {
+    background:
+        radial-gradient(44% 54% at 14% 16%, rgba(var(--nw-cover-r), var(--nw-cover-g), var(--nw-cover-b), 0.46), transparent 60%),
+        radial-gradient(40% 50% at 88% 12%, rgba(var(--nw-cover-r), var(--nw-cover-g), var(--nw-cover-b), 0.34), transparent 60%),
+        radial-gradient(50% 60% at 80% 86%, rgba(var(--nw-cover-r), var(--nw-cover-g), var(--nw-cover-b), 0.30), transparent 62%),
+        radial-gradient(42% 52% at 20% 92%, rgba(var(--nw-cover-r), var(--nw-cover-g), var(--nw-cover-b), 0.24), transparent 60%),
+        linear-gradient(180deg, rgba(6, 10, 20, 0.14), rgba(6, 10, 20, 0.52));
+    transition: background 1.2s ease;
+}
+
+/* Karaoké : renforce la couleur de la pochette derrière les paroles */
+body.has-cover-theme .karaoke-bg-glow {
+    background: radial-gradient(circle, rgba(var(--nw-cover-r), var(--nw-cover-g), var(--nw-cover-b), 0.9) 0%, transparent 70%) !important;
+    opacity: 0.35 !important;
 }

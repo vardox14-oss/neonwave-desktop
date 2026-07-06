@@ -1319,6 +1319,77 @@ const Music = {
         root.style.setProperty('--ambient-image', hasArtwork ? `url("${safeUrl}")` : 'none');
         root.style.setProperty('--ambient-opacity', hasArtwork ? '0.82' : '0');
         document.body.classList.toggle('has-ambient-artwork', hasArtwork);
+
+        // Thème dynamique : toute l'app se teinte avec la couleur de la pochette
+        this.applyCoverTheme(artworkUrl);
+    },
+
+    // Extrait la couleur dominante de la pochette et la propage en variables CSS
+    // globales (--nw-cover-*) pour teinter le fond, les orbes et les accents.
+    applyCoverTheme(artworkUrl = '') {
+        const root = document.documentElement;
+        if (!artworkUrl) {
+            document.body.classList.remove('has-cover-theme');
+            return;
+        }
+
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+            try {
+                const canvas = document.getElementById('colorCanvas');
+                if (!canvas) return;
+                const size = 20;
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(img, 0, 0, size, size);
+                const data = ctx.getImageData(0, 0, size, size).data;
+
+                // On cherche la couleur la plus VIBRANTE (saturée + luminosité moyenne),
+                // pas la moyenne (qui donne toujours du gris terne).
+                let best = null;
+                let bestScore = -1;
+                let avgR = 0, avgG = 0, avgB = 0, n = 0;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i], g = data[i + 1], b = data[i + 2];
+                    avgR += r; avgG += g; avgB += b; n += 1;
+
+                    const max = Math.max(r, g, b);
+                    const min = Math.min(r, g, b);
+                    const lum = (max + min) / 510;                 // 0..1
+                    const sat = max === 0 ? 0 : (max - min) / max; // 0..1
+                    const lumScore = 1 - Math.abs(lum - 0.5) * 1.5; // pénalise trop sombre/clair
+                    const score = sat * Math.max(0, lumScore);
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = [r, g, b];
+                    }
+                }
+
+                let [r, g, b] = (bestScore > 0.12 && best)
+                    ? best
+                    : [Math.round(avgR / n), Math.round(avgG / n), Math.round(avgB / n)];
+
+                // Remonte un peu la vivacité si la couleur reste sombre
+                const maxC = Math.max(r, g, b);
+                if (maxC < 90) {
+                    const boost = 90 / (maxC || 1);
+                    r = Math.min(255, Math.round(r * boost));
+                    g = Math.min(255, Math.round(g * boost));
+                    b = Math.min(255, Math.round(b * boost));
+                }
+
+                root.style.setProperty('--nw-cover-r', r);
+                root.style.setProperty('--nw-cover-g', g);
+                root.style.setProperty('--nw-cover-b', b);
+                document.body.classList.add('has-cover-theme');
+            } catch { /* image cross-origin non lisible : on garde le thème par défaut */ }
+        };
+        img.onerror = () => {};
+        img.src = artworkUrl;
     },
 
     syncNowPlayingVisuals(track) {

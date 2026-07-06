@@ -1,8 +1,9 @@
-const { app, BrowserWindow, nativeTheme, ipcMain, dialog, shell, crashReporter, Tray, Menu } = require('electron');
+const { app, BrowserWindow, session, nativeTheme, ipcMain, dialog, shell, crashReporter, Tray, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { DiscordPresenceManager, DEFAULT_DISCORD_CLIENT_ID } = require('./src/discord-presence');
 const { initializeEnv } = require('./src/load-env');
+const spotifySession = require('./src/lib/spotify-session');
 const { autoUpdater } = require('electron-updater');
 
 // --- Démarrer le Serveur Express ---
@@ -62,6 +63,149 @@ initializeEnv({
 const discordPresence = new DiscordPresenceManager({
     clientId: process.env.DISCORD_CLIENT_ID || DEFAULT_DISCORD_CLIENT_ID
 });
+
+// ─── Intégration Spotify (Canvas vidéo de fond) ───
+const SPOTIFY_PARTITION = 'persist:spotify';
+let spotifyTokenWindow = null;
+
+const setSpotifyCookie = async (spDc) => {
+    const ses = session.fromPartition(SPOTIFY_PARTITION);
+    await ses.cookies.set({
+        url: 'https://open.spotify.com',
+        name: 'sp_dc',
+        value: spDc,
+        domain: '.spotify.com',
+        path: '/',
+        secure: true,
+        httpOnly: true
+    });
+};
+
+let spotifyWebRequestBound = false;
+
+// Capture le token web-player au niveau réseau (toutes les requêtes de la
+// session Spotify, y compris celles des Web Workers que fetch ne voit pas).
+const bindSpotifyTokenCapture = () => {
+    if (spotifyWebRequestBound) return;
+    spotifyWebRequestBound = true;
+    const ses = session.fromPartition(SPOTIFY_PARTITION);
+    ses.webRequest.onSendHeaders(
+        { urls: ['https://*.spotify.com/*', 'https://spclient.wg.spotify.com/*'] },
+        (details) => {
+            const headers = details.requestHeaders || {};
+            const auth = headers.Authorization || headers.authorization;
+            if (auth && String(auth).startsWith('Bearer ')) {
+                spotifySession.setToken(String(auth).slice(7));
+            }
+        }
+    );
+};
+
+// Fenêtre cachée qui maintient une session Spotify vivante -> le token
+// web-player est régénéré automatiquement et capté au niveau réseau.
+const startSpotifyTokenWindow = async () => {
+    const spDc = spotifySession.getSpDc();
+    if (!spDc) return;
+    if (spotifyTokenWindow && !spotifyTokenWindow.isDestroyed()) return;
+
+    try {
+        await setSpotifyCookie(spDc);
+    } catch (error) {
+        writeAppLog('Spotify cookie set failed:', error);
+        return;
+    }
+
+    bindSpotifyTokenCapture();
+
+    spotifyTokenWindow = new BrowserWindow({
+        show: false,
+        webPreferences: {
+            partition: SPOTIFY_PARTITION,
+            backgroundThrottling: false
+        }
+    });
+
+    spotifyTokenWindow.loadURL('https://open.spotify.com').catch((error) => {
+        writeAppLog('Spotify token window load failed:', error);
+    });
+
+    // Recharge la session toutes les 45 min pour renouveler le token avant expiration.
+    const refreshTimer = setInterval(() => {
+        if (!spotifyTokenWindow || spotifyTokenWindow.isDestroyed()) {
+            clearInterval(refreshTimer);
+            return;
+        }
+        spotifyTokenWindow.webContents.reload();
+    }, 45 * 60 * 1000);
+
+    spotifyTokenWindow.on('closed', () => {
+        clearInterval(refreshTimer);
+        spotifyTokenWindow = null;
+    });
+};
+
+const stopSpotifyTokenWindow = () => {
+    if (spotifyTokenWindow && !spotifyTokenWindow.isDestroyed()) {
+        spotifyTokenWindow.destroy();
+    }
+    spotifyTokenWindow = null;
+};
+
+ipcMain.on('spotify:token', (_event, token) => {
+    if (token) spotifySession.setToken(token);
+});
+
+// Ouvre la fenêtre de connexion Spotify et capture le cookie sp_dc.
+ipcMain.handle('spotify:connect', async () => {
+    const ses = session.fromPartition(SPOTIFY_PARTITION);
+    const loginWindow = new BrowserWindow({
+        width: 480,
+        height: 720,
+        title: 'Connexion Spotify',
+        autoHideMenuBar: true,
+        webPreferences: { partition: SPOTIFY_PARTITION }
+    });
+    loginWindow.loadURL('https://accounts.spotify.com/login');
+
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (result) => {
+            if (settled) return;
+            settled = true;
+            clearInterval(poll);
+            if (!loginWindow.isDestroyed()) loginWindow.close();
+            resolve(result);
+        };
+
+        const poll = setInterval(async () => {
+            try {
+                const cookies = await ses.cookies.get({ name: 'sp_dc', domain: '.spotify.com' });
+                if (cookies && cookies.length && cookies[0].value) {
+                    spotifySession.setSpDc(cookies[0].value);
+                    await startSpotifyTokenWindow();
+                    finish({ connected: true });
+                }
+            } catch { /* réessaie */ }
+        }, 1500);
+
+        loginWindow.on('closed', () => finish({ connected: spotifySession.isConnected() }));
+    });
+});
+
+ipcMain.handle('spotify:disconnect', async () => {
+    spotifySession.clear();
+    stopSpotifyTokenWindow();
+    try {
+        const ses = session.fromPartition(SPOTIFY_PARTITION);
+        await ses.clearStorageData();
+    } catch { /* ignore */ }
+    return { connected: false };
+});
+
+ipcMain.handle('spotify:status', () => ({
+    connected: spotifySession.isConnected(),
+    active: Boolean(spotifySession.getToken())
+}));
 
 ipcMain.handle('discord-presence:set', async (_event, payload) => {
     return discordPresence.setActivity(payload || {});
@@ -217,6 +361,11 @@ app.whenReady().then(async () => {
 
     createWindow();
     createTray();
+
+    // Relance la session Spotify si l'utilisateur s'était déjà connecté.
+    if (spotifySession.isConnected()) {
+        startSpotifyTokenWindow().catch((error) => writeAppLog('Spotify token window init failed:', error));
+    }
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {

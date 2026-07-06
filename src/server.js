@@ -9,12 +9,15 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
-const ytdl = require('@distube/ytdl-core');
+const localYouTube = require('./lib/youtube');
+const ytdlp = require('./lib/ytdlp');
 const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
 const net = require('net');
 const spotify = require('./lib/spotify');
+const spotifyCanvas = require('./lib/spotify-canvas');
+const spotifySession = require('./lib/spotify-session');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
@@ -2400,9 +2403,27 @@ const normalizeSearchFilter = (value) => SEARCH_FILTERS[value] || SEARCH_FILTERS
 const fetchSearchItems = async (query, filter = 'music') => {
     if (!query) return [];
 
-    // PRIMARY: Try Piped API (faster and bypasses local CAPTCHA)
+    const normalizedFilter = normalizeSearchFilter(filter);
+
+    // PRIMARY: InnerTube local (fiable, sans instance externe)
+    if (normalizedFilter === 'music_songs') {
+        try {
+            const songs = await localYouTube.searchMusicSongs(query);
+            if (songs.length > 0) return songs;
+        } catch (err) {
+            console.warn('InnerTube music search failed:', err.message);
+        }
+    }
+
     try {
-        const normalizedFilter = normalizeSearchFilter(filter);
+        const videos = await localYouTube.searchVideos(query);
+        if (videos.length > 0) return videos;
+    } catch (err) {
+        console.warn('InnerTube video search failed:', err.message);
+    }
+
+    // SECONDARY: Piped API
+    try {
         const filterSegment = normalizedFilter === 'all' ? '' : `&filter=${normalizedFilter}`;
         const pipedData = await tryPipedFetch(`/search?q=${encodeURIComponent(query)}${filterSegment}`);
         if (pipedData && Array.isArray(pipedData.items) && pipedData.items.length > 0) {
@@ -2412,7 +2433,7 @@ const fetchSearchItems = async (query, filter = 'music') => {
         console.warn('Piped search failed:', err.message);
     }
 
-    // SECONDARY: Fallback to YouTube scraper
+    // TERTIARY: Fallback to YouTube scraper
     try {
         const data = await scrapeYouTube(query);
         if (data.items && data.items.length > 0) {
@@ -2588,7 +2609,27 @@ const resolveTrackReferenceToVideo = async (trackReference, { currentVideoId = '
 
     const queries = buildTrackResolutionQueries(normalizedTrackReference);
 
+    // PRIMARY: InnerTube local (YouTube Music d'abord — titres officiels propres)
     for (const currentQuery of queries.slice(0, 3)) {
+        try {
+            const songs = await localYouTube.searchMusicSongs(currentQuery);
+            mergeCandidates(songs, 'innertube-music', currentQuery);
+            if (resolvedMatch && isSafeResolveAnalysis(resolvedMatch, { sourceLabel: resolvedMatch?.sourceLabel })) {
+                break;
+            }
+
+            const videos = await localYouTube.searchVideos(currentQuery);
+            mergeCandidates(videos, 'innertube', currentQuery);
+            if (resolvedMatch && isSafeResolveAnalysis(resolvedMatch, { sourceLabel: resolvedMatch?.sourceLabel })) {
+                break;
+            }
+        } catch (error) {
+            console.error('   InnerTube search failed:', error.message);
+        }
+    }
+
+    if (!resolvedMatch || !isSafeResolveAnalysis(resolvedMatch, { sourceLabel: resolvedMatch?.sourceLabel })) {
+        for (const currentQuery of queries.slice(0, 3)) {
         try {
             const { items } = await scrapeYouTube(currentQuery);
             mergeCandidates(items, 'yt-scraper', currentQuery);
@@ -2597,6 +2638,7 @@ const resolveTrackReferenceToVideo = async (trackReference, { currentVideoId = '
             }
         } catch (error) {
             console.error('   YT Scraper failed:', error.message);
+        }
         }
     }
 
@@ -3376,30 +3418,256 @@ const resolvePipedStreamUrl = async (videoId) => {
     return null;
 };
 
-const streamUrlCache = new Map(); // videoId -> { url, expires }
+// ─── Canvas Spotify (vidéo de fond du Now Playing) ───
+app.get('/api/spotify/connection', authenticate, (req, res) => {
+    res.json({
+        connected: spotifySession.isConnected(),
+        active: Boolean(spotifySession.getToken())
+    });
+});
+
+app.get('/api/spotify/canvas/:trackId', authenticate, async (req, res) => {
+    const token = spotifySession.getToken();
+    if (!token) {
+        return res.json({ canvasUrl: null, connected: spotifySession.isConnected() });
+    }
+    try {
+        const canvasUrl = await spotifyCanvas.getCanvasUrl(req.params.trackId, token);
+        res.json({ canvasUrl: canvasUrl || null, connected: true });
+    } catch (error) {
+        console.warn('Canvas route error:', error.message);
+        res.json({ canvasUrl: null, connected: true });
+    }
+});
+
+// ─── Streaming audio progressif (à la volée, sans écriture disque) ───
+// Astuce googlevideo : il refuse les plages ouvertes (Range: bytes=0-) ou
+// dont la fin dépasse la taille (403), MAIS sert tout le fichier d'un coup
+// pour une plage bornée EXACTEMENT à total-1. On sonde donc la taille puis
+// on relaie une unique plage bornée — la musique démarre en <300 ms.
+const streamUrlCache = new Map(); // videoId -> { url, mimeType, expires }
+const STREAM_URL_SAFETY_MARGIN = 5 * 60 * 1000;
+
+const getStreamUrlExpiry = (streamUrl) => {
+    try {
+        const expireMs = Number.parseInt(new URL(streamUrl).searchParams.get('expire') || '0', 10) * 1000;
+        if (Number.isFinite(expireMs) && expireMs > Date.now()) {
+            return expireMs - STREAM_URL_SAFETY_MARGIN;
+        }
+    } catch { /* URL invalide */ }
+    return Date.now() + 30 * 60 * 1000;
+};
+
+const resolveStreamSource = async (videoId, { skipCache = false } = {}) => {
+    if (!skipCache) {
+        const cached = streamUrlCache.get(videoId);
+        if (cached && cached.expires > Date.now()) return cached;
+    }
+    streamUrlCache.delete(videoId);
+
+    const localStream = await localYouTube.resolveAudioStream(videoId);
+    if (localStream?.url) {
+        console.log(`   ✅ Flux [${localStream.client}] ${localStream.mimeType}`);
+        const entry = {
+            url: localStream.url,
+            mimeType: (localStream.mimeType || 'audio/webm').split(';')[0],
+            totalBytes: localStream.totalBytes || null,
+            expires: getStreamUrlExpiry(localStream.url)
+        };
+        streamUrlCache.set(videoId, entry);
+        return entry;
+    }
+
+    const pipedUrl = await resolvePipedStreamUrl(videoId);
+    if (pipedUrl) {
+        const entry = { url: pipedUrl, mimeType: 'audio/mp4', totalBytes: null, expires: getStreamUrlExpiry(pipedUrl) };
+        streamUrlCache.set(videoId, entry);
+        return entry;
+    }
+
+    return null;
+};
+
+const parseRangeHeader = (rangeHeader) => {
+    const match = /bytes=(\d+)-(\d*)/.exec(String(rangeHeader || ''));
+    if (!match) return null;
+    return {
+        start: Number.parseInt(match[1], 10) || 0,
+        end: match[2] ? Number.parseInt(match[2], 10) : null
+    };
+};
+
+// ─── Cache audio en mémoire (RAM, aucun fichier disque) ───
+// googlevideo bloque (403) dès qu'on refait plusieurs requêtes sur la même
+// URL (lecture + préchargement + seeks). On récupère donc chaque morceau UNE
+// seule fois (plage unique bornée à total-1, la seule que googlevideo sert en
+// entier), on le garde en RAM, puis on le sert localement avec un vrai support
+// Range : seeks instantanés et zéro nouvelle requête YouTube.
+const audioMemCache = new Map(); // videoId -> { buffer, mimeType }
+const audioInFlight = new Map(); // videoId -> Promise<entry|null>
+const AUDIO_MEM_CACHE_MAX = 12; // ~12 morceaux (opus ~4 Mo) => ~50 Mo max
+
+const AUDIO_DOWNLOAD_CHUNK = 1024 * 1024; // 1 Mo : taille de plage toujours acceptée
+
+// Télécharge tout le fichier en une seule plage bornée. googlevideo accepte
+// souvent 0..total-1 d'un coup (rapide), mais refuse (403) les grosses plages
+// sur certaines vidéos : on renvoie alors null pour laisser le fallback chunké.
+const fetchWholeInOneRange = async (streamUrl, totalBytes) => {
+    const full = await fetch(streamUrl, { headers: { Range: `bytes=0-${totalBytes - 1}` } });
+    if (full.status >= 400 || !full.body) {
+        full.body?.cancel?.().catch?.(() => {});
+        return null;
+    }
+    const buffer = Buffer.from(await full.arrayBuffer());
+    return buffer.length === totalBytes ? buffer : null;
+};
+
+// Fallback : récupère le fichier par blocs de 1 Mo (plages que googlevideo ne
+// rejette jamais pour dépassement de taille). Ré-résout une URL fraîche entre
+// deux blocs si l'un échoue (URL expirée en cours de route).
+const fetchInChunks = async (videoId, firstSource, totalBytes) => {
+    const parts = [];
+    let source = firstSource;
+    let position = 0;
+
+    while (position < totalBytes) {
+        const end = Math.min(position + AUDIO_DOWNLOAD_CHUNK - 1, totalBytes - 1);
+        let chunk = await fetch(source.url, { headers: { Range: `bytes=${position}-${end}` } });
+
+        if (chunk.status >= 400 || !chunk.body) {
+            chunk.body?.cancel?.().catch?.(() => {});
+            const fresh = await resolveStreamSource(videoId, { skipCache: true });
+            if (!fresh) return null;
+            source = fresh;
+            chunk = await fetch(source.url, { headers: { Range: `bytes=${position}-${end}` } });
+            if (chunk.status >= 400 || !chunk.body) {
+                chunk.body?.cancel?.().catch?.(() => {});
+                return null;
+            }
+        }
+
+        parts.push(Buffer.from(await chunk.arrayBuffer()));
+        position = end + 1;
+    }
+
+    const buffer = Buffer.concat(parts);
+    return buffer.length === totalBytes ? buffer : null;
+};
+
+// Récupère l'audio complet en mémoire. Moteur principal : yt-dlp (contourne le
+// throttling et les reuploads bridées). Repli : extraction youtubei.js directe.
+const fetchWholeAudio = async (videoId) => {
+    // 1. yt-dlp (robuste)
+    try {
+        const result = await ytdlp.downloadAudio(videoId);
+        if (result?.buffer?.length) {
+            console.log(`   ✅ Audio via yt-dlp (${(result.buffer.length / 1024 / 1024).toFixed(1)} Mo)`);
+            return result;
+        }
+    } catch (err) {
+        console.warn(`   yt-dlp échoué pour ${videoId}:`, err.message);
+    }
+
+    // 2. Repli : URL directe youtubei.js + relais borné
+    const source = await resolveStreamSource(videoId);
+    if (!source) return null;
+
+    let totalBytes = source.totalBytes;
+    if (!totalBytes) {
+        const probe = await fetch(source.url, { headers: { Range: 'bytes=0-0' } });
+        probe.body?.cancel?.().catch?.(() => {});
+        const totalMatch = /bytes\s+\d+-\d+\/(\d+)/.exec(probe.headers.get('content-range') || '');
+        totalBytes = totalMatch ? Number.parseInt(totalMatch[1], 10) : null;
+        if (!totalBytes) return null;
+    }
+
+    const buffer = await fetchWholeInOneRange(source.url, totalBytes)
+        || await fetchInChunks(videoId, source, totalBytes);
+    if (buffer) {
+        return { buffer, mimeType: source.mimeType || 'audio/webm' };
+    }
+    return null;
+};
+
+const getAudioFromCache = (videoId) => {
+    const cached = audioMemCache.get(videoId);
+    if (!cached) return null;
+    audioMemCache.delete(videoId); // rafraîchit la position LRU
+    audioMemCache.set(videoId, cached);
+    return cached;
+};
+
+const loadAudio = (videoId) => {
+    const cached = getAudioFromCache(videoId);
+    if (cached) return Promise.resolve(cached);
+
+    const existing = audioInFlight.get(videoId);
+    if (existing) return existing;
+
+    const promise = (async () => {
+        const entry = await fetchWholeAudio(videoId);
+        if (entry) {
+            audioMemCache.set(videoId, entry);
+            while (audioMemCache.size > AUDIO_MEM_CACHE_MAX) {
+                audioMemCache.delete(audioMemCache.keys().next().value);
+            }
+            console.log(`   ✅ Audio prêt (${(entry.buffer.length / 1024 / 1024).toFixed(1)} Mo, ${audioMemCache.size} en cache)`);
+        }
+        return entry;
+    })();
+
+    audioInFlight.set(videoId, promise);
+    promise.finally(() => audioInFlight.delete(videoId));
+    return promise;
+};
+
+const serveAudioFromBuffer = (req, res, entry) => {
+    const totalBytes = entry.buffer.length;
+    const requested = parseRangeHeader(req.headers.range);
+    const start = requested ? Math.min(requested.start, totalBytes - 1) : 0;
+    const end = requested && requested.end !== null
+        ? Math.min(requested.end, totalBytes - 1)
+        : totalBytes - 1;
+
+    if (start > end || start < 0) {
+        res.status(416).setHeader('Content-Range', `bytes */${totalBytes}`);
+        return res.end();
+    }
+
+    res.status(req.headers.range ? 206 : 200);
+    res.setHeader('Content-Type', entry.mimeType);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Length', String(end - start + 1));
+    if (req.headers.range) {
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${totalBytes}`);
+    }
+    res.end(entry.buffer.subarray(start, end + 1));
+};
 
 app.get('/api/music/streams/:id', authenticate, async (req, res) => {
-    const videoId = req.params.id;
+    const videoId = extractVideoId({ videoId: req.params.id });
+    if (!videoId) {
+        return res.status(400).json({ error: 'Identifiant vidéo invalide.' });
+    }
     console.log(`🎵 Stream request for: ${videoId}`);
 
     const db = getDB();
     const p = db.users.map(u => u.history).flat().find(h => h?.videoId === videoId);
     if (p) trackUserHistory(req.user.id, p);
 
-    // Fetch the stream URL from the VPS proxy server-side
     try {
-        const proxyUrl = `http://80.241.223.11:4000/api/stream/${videoId}`;
-        const proxyRes = await fetch(proxyUrl, { redirect: 'manual' });
-        
-        const location = proxyRes.headers.get('location');
-        if (location) {
-            return res.redirect(307, location);
+        const entry = await loadAudio(videoId);
+        if (entry) {
+            return serveAudioFromBuffer(req, res, entry);
         }
     } catch (err) {
-        console.error('VPS proxy error:', err);
+        console.error('Stream resolution error:', err);
     }
-    
-    res.status(404).json({ error: 'Aucun flux audio disponible.' });
+
+    if (!res.headersSent) {
+        res.status(404).json({ error: 'Aucun flux audio disponible.' });
+    }
 });
 
 // ═══════════════════════════════════════════════════════════════
