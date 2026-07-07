@@ -21,3 +21,5 @@ yt-dlp.exe
 spotify-session.json
 # Sorties de build
 build-cache/
+# Token Spotify embarqué (cookie sp_dc du proprio) — NE JAMAIS committer
+src/lib/spotify-embedded.js

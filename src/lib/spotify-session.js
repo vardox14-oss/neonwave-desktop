@@ -18,11 +18,27 @@ const state = {
     tokenExpiresAt: 0
 };
 
+// Cookie sp_dc embarqué (propriétaire) : sert de token par défaut pour que les
+// Canvas marchent sans que chaque utilisateur connecte son compte. Optionnel.
+const loadEmbeddedSpDc = () => {
+    try {
+        const embedded = require('./spotify-embedded');
+        return typeof embedded === 'string' ? embedded.trim() : '';
+    } catch {
+        return '';
+    }
+};
+
 const load = () => {
     try {
         const raw = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8'));
-        if (typeof raw.spDc === 'string') state.spDc = raw.spDc;
+        if (typeof raw.spDc === 'string' && raw.spDc) state.spDc = raw.spDc;
     } catch { /* pas encore configuré */ }
+
+    // Aucun compte connecté -> on retombe sur le token partagé embarqué.
+    if (!state.spDc) {
+        state.spDc = loadEmbeddedSpDc();
+    }
     return state.spDc;
 };
 
