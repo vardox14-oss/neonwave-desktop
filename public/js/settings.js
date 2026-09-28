@@ -8,6 +8,35 @@ const Settings = {
         }
         modal.style.display = 'flex';
         this.refreshSpotifyStatus();
+        this.refreshCrossfadeUI();
+    },
+
+    refreshCrossfadeUI() {
+        const enabled = localStorage.getItem('nw_crossfade_enabled') === '1';
+        const duration = parseInt(localStorage.getItem('nw_crossfade_duration') || '0', 10) || 0;
+        const toggle = document.getElementById('crossfadeToggle');
+        const slider = document.getElementById('crossfadeSlider');
+        const value = document.getElementById('crossfadeValue');
+        const sliderRow = document.getElementById('crossfadeSliderRow');
+        if (toggle) toggle.checked = enabled;
+        if (slider) slider.value = duration;
+        if (value) value.textContent = `${duration} s`;
+        if (sliderRow) sliderRow.style.opacity = enabled ? '1' : '0.45';
+    },
+
+    toggleCrossfade(enabled) {
+        localStorage.setItem('nw_crossfade_enabled', enabled ? '1' : '0');
+        const sliderRow = document.getElementById('crossfadeSliderRow');
+        if (sliderRow) sliderRow.style.opacity = enabled ? '1' : '0.45';
+        if (typeof Player !== 'undefined') Player.crossfadeEnabled = enabled;
+    },
+
+    setCrossfadeDuration(rawValue) {
+        const duration = parseInt(rawValue, 10) || 0;
+        localStorage.setItem('nw_crossfade_duration', String(duration));
+        const value = document.getElementById('crossfadeValue');
+        if (value) value.textContent = `${duration} s`;
+        if (typeof Player !== 'undefined') Player.crossfadeDuration = duration;
     },
 
     async refreshSpotifyStatus() {

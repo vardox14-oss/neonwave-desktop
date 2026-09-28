@@ -1,3 +1,23 @@
+const dns = require('dns');
+try {
+    dns.setServers(['1.1.1.1', '8.8.8.8', '1.0.0.1']);
+    const customResolver = new dns.Resolver();
+    customResolver.setServers(['1.1.1.1', '8.8.8.8', '1.0.0.1']);
+    const originalLookup = dns.lookup;
+    dns.lookup = function(hostname, options, callback) {
+        if (typeof options === 'function') { callback = options; options = {}; }
+        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+            return originalLookup.call(dns, hostname, options, callback);
+        }
+        customResolver.resolve4(hostname, (err, addrs) => {
+            if (!err && addrs && addrs.length) {
+                if (options && options.all) return callback(null, addrs.map(a => ({ address: a, family: 4 })));
+                return callback(null, addrs[0], 4);
+            }
+            originalLookup.call(dns, hostname, options, callback);
+        });
+    };
+} catch(e) {}
 const path = require('path');
 const { initializeEnv } = require('./load-env');
 initializeEnv({
@@ -29,9 +49,15 @@ const {
 } = require('./lib/password');
 
 const app = express();
+app.set('trust proxy', true);
 
 const PORT = process.env.PORT || 5000;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const APP_STORE_MODE = process.env.APP_STORE_MODE === 'true';
 const JWT_SECRET = process.env.JWT_SECRET || 'neonwave-secret-2026';
+if (IS_PRODUCTION && (JWT_SECRET === 'neonwave-secret-2026' || JWT_SECRET.length < 32)) {
+    throw new Error('JWT_SECRET must contain at least 32 characters in production.');
+}
 const DB_PATH = process.env.NEONWAVE_DB_PATH || path.join(__dirname, '..', 'data', 'database.json');
 const DB_BACKUP_PATH = `${DB_PATH}.bak`;
 const LOCAL_TRACKS_DIR = process.env.NEONWAVE_LOCAL_TRACKS_PATH
@@ -219,8 +245,18 @@ app.use(helmet({
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: false,
 }));
+if (IS_PRODUCTION) app.set('trust proxy', 1);
+const allowedWebOrigins = new Set(
+    String(process.env.FRONTEND_URL || '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+);
 app.use(cors({
-    origin: true, // In production, replace with specific domain
+    origin(origin, callback) {
+        if (!IS_PRODUCTION || !origin || allowedWebOrigins.has(origin)) return callback(null, true);
+        return callback(new Error('Origin not allowed by NeonWave.'));
+    },
     credentials: true
 }));
 app.use(express.json({ limit: '80mb' }));
@@ -228,10 +264,29 @@ app.use(cookieParser());
 app.use('/api/auth/login', authRateLimiter);
 app.use('/api/auth/register', authRateLimiter);
 app.use('/api/setup/owner', setupRateLimiter);
+app.get('/api/health', (_req, res) => res.json({ ok: true, appStoreMode: APP_STORE_MODE }));
+
+// The production service used by the App Store build exposes accounts and
+// personal files only. Unofficial Spotify/YouTube catalogue, Canvas and media
+// conversion routes stay unavailable even if a provider token is present.
+app.use((req, res, next) => {
+    if (APP_STORE_MODE && (
+        req.path.startsWith('/api/music') ||
+        req.path.startsWith('/api/spotify') ||
+        req.path.startsWith('/api/youtube') ||
+        req.path.startsWith('/api/video')
+    )) {
+        return res.status(404).json({ error: 'Route unavailable in App Store mode.' });
+    }
+    return next();
+});
 
 // --- GLOBAL REQUEST LOGGER ---
 app.use((req, res, next) => {
-    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url} - IP: ${req.ip}`);
+    const logURL = req.path.startsWith('/api/ios/auth')
+        ? req.path
+        : req.url.replace(/([?&](?:token|ticket)=)[^&]+/gi, '$1[redacted]');
+    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${logURL} - IP: ${req.ip}`);
     next();
 });
 app.use(express.static(path.join(__dirname, '..', 'public'), {
@@ -254,10 +309,30 @@ const getClientIP = (req) => {
            '127.0.0.1';
 };
 
+const GUEST_ALLOWED_PREFIXES = [
+    '/api/music/search',
+    '/api/music/resolve',
+    '/api/music/lyrics',
+    '/api/spotify/',
+    '/api/ambient/',
+    '/api/user/music-preferences'
+];
+
+const isGuestAllowedRoute = (path) => {
+    if (typeof path !== 'string') return false;
+    return GUEST_ALLOWED_PREFIXES.some(prefix => path.startsWith(prefix));
+};
+
 const authenticate = (req, res, next) => {
     const token = req.cookies?.token || req.headers.authorization?.split(' ')[1] || req.query?.token;
 
-    if (!token) return res.status(401).json({ error: 'Auth requis' });
+    if (!token) {
+        if (isGuestAllowedRoute(req.path)) {
+            req.user = { id: 'guest', role: 'GUEST', username: 'Invité' };
+            return next();
+        }
+        return res.status(401).json({ error: 'Auth requis' });
+    }
 
     try {
         req.user = jwt.verify(token, JWT_SECRET);
@@ -270,7 +345,36 @@ const authenticate = (req, res, next) => {
 
         next();
     } catch {
+        if (isGuestAllowedRoute(req.path)) {
+            req.user = { id: 'guest', role: 'GUEST', username: 'Invité' };
+            return next();
+        }
         res.status(401).json({ error: 'Session invalide ou expirée' });
+    }
+};
+
+// AVPlayer performs its own Range requests and cannot reliably attach the
+// session Authorization header to every one. Give it a short-lived ticket
+// restricted to one video instead of exposing the user's normal session JWT.
+const authenticateAudioStream = (req, res, next) => {
+    if (!req.query?.ticket) return authenticate(req, res, next);
+
+    try {
+        const payload = jwt.verify(req.query.ticket, JWT_SECRET);
+        const videoId = extractVideoId({ videoId: req.params.id });
+        if (payload.purpose !== 'ios-audio-stream' || !videoId || payload.videoId !== videoId) {
+            return res.status(401).json({ error: 'Ticket audio invalide.' });
+        }
+
+        if (payload.id !== 'guest') {
+            const db = getDB();
+            const user = db.users.find(u => u.id === payload.id);
+            if (!user || user.banned) return res.status(403).json({ error: 'Compte indisponible.' });
+        }
+        req.user = payload;
+        next();
+    } catch {
+        res.status(401).json({ error: 'Ticket audio expiré ou invalide.' });
     }
 };
 
@@ -1058,6 +1162,15 @@ const compareMostViewedCandidateAnalyses = (left, right) => {
     const rightArtist = right?.primaryArtistMatch ? 1 : 0;
     if (rightArtist !== leftArtist) return rightArtist - leftArtist;
 
+    // Prioritize tight duration match over view count (prevents 5min clips replacing 3min songs)
+    const leftTight = Number.isFinite(left?.durationDifference) && left.durationDifference <= 12;
+    const rightTight = Number.isFinite(right?.durationDifference) && right.durationDifference <= 12;
+    if (leftTight !== rightTight) return leftTight ? -1 : 1;
+
+    const leftBigDiff = Number.isFinite(left?.durationDifference) && left.durationDifference > 25;
+    const rightBigDiff = Number.isFinite(right?.durationDifference) && right.durationDifference > 25;
+    if (leftBigDiff !== rightBigDiff) return leftBigDiff ? 1 : -1;
+
     const leftViews = Number.isFinite(left?.viewCount) ? left.viewCount : 0;
     const rightViews = Number.isFinite(right?.viewCount) ? right.viewCount : 0;
     if (rightViews !== leftViews) return rightViews - leftViews;
@@ -1084,7 +1197,11 @@ const analyzeYTCandidate = (candidate, spotifyTrack) => {
         : [];
     const primaryArtist = expectedArtists[0] || '';
 
-    if (!candidateTitle || !expectedTitle) {
+    // A numbered sequel is a different recording, even when duration is unknown.
+    const isNumberedSequel = expectedTitle && new RegExp(
+        `(?:^| )${expectedTitle} (?:\\d+|ii|iii|iv|v|vi|vii|viii|ix|x)(?: |$)`
+    ).test(candidateTitle);
+    if (!candidateTitle || !expectedTitle || isNumberedSequel) {
         return {
             candidate,
             score: Number.NEGATIVE_INFINITY,
@@ -1177,12 +1294,22 @@ const analyzeYTCandidate = (candidate, spotifyTrack) => {
     const spotifyDuration = Math.round((spotifyTrack?.durationMs || 0) / 1000);
     if (ytDuration > 0 && spotifyDuration > 0) {
         durationDifference = Math.abs(ytDuration - spotifyDuration);
-        if (durationDifference <= 4) score += 18;
-        else if (durationDifference <= 10) score += 10;
-        else if (durationDifference <= 20) score += 4;
-        else if (durationDifference >= 90) score -= 140;
-        else if (durationDifference >= 60) score -= 80;
-        else if (durationDifference >= 35) score -= 24;
+        if (durationDifference <= 3) score += 60;
+        else if (durationDifference <= 8) score += 40;
+        else if (durationDifference <= 14) score += 18;
+        else if (durationDifference >= 80) score -= 350;
+        else if (durationDifference >= 45) score -= 220;
+        else if (durationDifference >= 25) score -= 90;
+        else if (durationDifference >= 18) score -= 35;
+    }
+
+    const isVideoClip = ["clip", "court metrage", "official video", "music video", "film", "short film"].some((term) => candidateCombined.includes(term));
+    if (isVideoClip && Number.isFinite(durationDifference) && durationDifference > 15) {
+        score -= 150;
+    }
+    const isAudioTrack = ["official audio", "audio officiel", "paroles", "lyrics"].some((term) => candidateCombined.includes(term));
+    if (isAudioTrack && Number.isFinite(durationDifference) && durationDifference <= 12) {
+        score += 40;
     }
 
     if (!extractVideoId(candidate)) {
@@ -1225,7 +1352,7 @@ const isSelectableYTCandidate = (analysis) => {
     if (!strongTitleMatch) return false;
     if (analysis.hasStrongNegativeHint) return false;
     if (analysis.hasNegativeHint && !analysis.primaryArtistMatch) return false;
-    if (Number.isFinite(analysis.durationDifference) && analysis.durationDifference >= 45) return false;
+    if (Number.isFinite(analysis.durationDifference) && analysis.durationDifference >= 35) return false;
     if (analysis.shortOrAmbiguousTitle && !analysis.primaryArtistMatch && !hasTightDurationMatch) return false;
     if (!analysis.primaryArtistMatch && analysis.titleCoverage < 1) return false;
 
@@ -1445,6 +1572,7 @@ const formatSpotifyTrackPayload = (track, fallbackImage = '') => {
         artist: artistNames.join(', ') || 'Artiste inconnu',
         album: track.album?.name || '',
         thumbnail: spotifyImage || track.thumb || fallbackImage || '',
+        imageUrl: spotifyImage || track.thumb || fallbackImage || '',
         duration: Math.round((track.durationMs || track.duration_ms || 0) / 1000),
         durationMs: track.durationMs || track.duration_ms || 0,
         trackNumber: Number.parseInt(track.trackNumber || track.track_number || track.track_position || '0', 10) || 0,
@@ -2206,11 +2334,32 @@ const fetchYouTubeVideoMetadata = async (videoId) => {
     }
 
     if (!playerResponse?.videoDetails) {
+        // Datacenter IPs may receive a blocked watch page while oEmbed still
+        // exposes the real public title and author. Never reuse local labels.
+        let metadata = null;
+        try {
+            const oembed = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(watchUrl)}&format=json`, {
+                signal: AbortSignal.timeout(8000)
+            });
+            if (oembed.ok) {
+                const data = await oembed.json();
+                if (data.title) {
+                    metadata = {
+                        videoId: normalizedVideoId,
+                        title: normalizeChoiceValue(data.title),
+                        uploaderName: normalizeChoiceValue(data.author_name || ''),
+                        duration: 0
+                    };
+                }
+            }
+        } catch (error) {
+            console.warn('YouTube oEmbed metadata unavailable:', error.message);
+        }
         youtubeVideoMetadataCache.set(normalizedVideoId, {
             cachedAt: Date.now(),
-            value: null
+            value: metadata
         });
-        return null;
+        return metadata;
     }
 
     const metadata = {
@@ -2582,7 +2731,19 @@ const resolveTrackReferenceToVideo = async (trackReference, { currentVideoId = '
         }
     }
 
-    const storedTrackMatches = findStoredPlayableTrack(normalizedTrackReference);
+    // Stored labels can outlive a video or point to a different recording.
+    // Only trust metadata fetched from the actual video before caching a match.
+    const storedTrackMatches = (await Promise.all(
+        findStoredPlayableTrack(normalizedTrackReference).map(async (candidate) => {
+            try {
+                const metadata = await fetchYouTubeVideoMetadata(extractVideoId(candidate));
+                return metadata?.title ? { ...candidate, ...metadata } : null;
+            } catch (error) {
+                console.warn('Stored video verification failed:', error.message);
+                return null;
+            }
+        })
+    )).filter(Boolean);
     if (Array.isArray(storedTrackMatches) && storedTrackMatches.length) {
         mergeCandidates(storedTrackMatches, 'local-db', 'local-db');
 
@@ -2729,7 +2890,7 @@ const resolveTrackReferenceToVideo = async (trackReference, { currentVideoId = '
     if (verifiedCandidates.length) {
         verifiedCandidates.sort(compareMostViewedCandidateAnalyses);
         resolvedMatch = verifiedCandidates[0];
-    } else if (!resolvedMatch || !isSafeResolveAnalysis(resolvedMatch, { sourceLabel: resolvedMatch?.sourceLabel })) {
+    } else {
         resolvedMatch = null;
     }
 
@@ -2763,6 +2924,12 @@ const resolveTrackReferenceToVideo = async (trackReference, { currentVideoId = '
 // ═══════════════════════════════════════════════════════════════
 // AUTH ROUTES
 // ═══════════════════════════════════════════════════════════════
+
+require('./lib/ios-api').installIOSAPI(app, {
+    limiter: authRateLimiter, getDB, saveDB, isSetupRequired, isValidEmail,
+    getClientIP, createUserId, createDefaultMusicState, issueAuthSession,
+    authenticate, getLocalTrackPublicPayload, getLocalTrackUserDir
+});
 
 app.get('/api/setup/status', (req, res) => {
     const db = getDB();
@@ -3201,21 +3368,12 @@ app.get('/api/spotify/search', authenticate, async (req, res) => {
             return res.json({ items: [], filter, spotifyEnabled: spotify.hasSpotifyConfig() });
         }
 
-        let prioritizedTracks = [];
         const bestArtistMatch = await spotify.findBestArtistMatch(query, { limit: 8 });
         const isExactArtistQuery = bestArtistMatch
             && normalizeComparisonValue(bestArtistMatch.name) === normalizeComparisonValue(query);
 
-        if (isExactArtistQuery) {
-            try {
-                const artistProfile = await spotify.getArtistProfile(bestArtistMatch.spotifyId, { name: bestArtistMatch.name });
-                prioritizedTracks = Array.isArray(artistProfile?.topTracks) ? artistProfile.topTracks : [];
-            } catch (artistProfileError) {
-                console.warn('Spotify search artist-priority warning:', artistProfileError);
-            }
-        }
-
-        const searchedTracks = await spotify.searchTracks(query, { limit: 10 });
+        // Search results ALWAYS come first — artist top tracks only fill remaining slots
+        const searchedTracks = await spotify.searchTracks(query, { limit: 20 });
         const filteredTracks = isExactArtistQuery
             ? searchedTracks.filter((track) => (track.artists || []).some((artist) => {
                 const artistId = normalizeChoiceValue(artist?.spotifyId || artist?.id || '');
@@ -3225,10 +3383,18 @@ app.get('/api/spotify/search', authenticate, async (req, res) => {
             }))
             : searchedTracks;
 
-        const spotifyTracks = mergeSpotifyTracks(
-            prioritizedTracks,
-            filteredTracks
-        ).slice(0, 10);
+        let bonusTracks = [];
+        if (isExactArtistQuery && filteredTracks.length < 10) {
+            try {
+                const artistProfile = await spotify.getArtistProfile(bestArtistMatch.spotifyId, { name: bestArtistMatch.name });
+                bonusTracks = Array.isArray(artistProfile?.topTracks) ? artistProfile.topTracks : [];
+            } catch (artistProfileError) {
+                console.warn('Spotify search artist-priority warning:', artistProfileError);
+            }
+        }
+
+        // Search results first, then filler from artist top tracks
+        const spotifyTracks = mergeSpotifyTracks(filteredTracks, bonusTracks).slice(0, 20);
         const items = await mapSpotifyTracksToPlayablePayload(spotifyTracks);
 
         res.json({
@@ -3298,7 +3464,7 @@ app.get('/api/deezer/albums/:id', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/music/resolve/:spotifyId', authenticate, async (req, res) => {
+app.get('/api/music/resolve/:spotifyId', async (req, res) => {
     const spotifyId = req.params.spotifyId;
     console.log(`🔍 Resolving Spotify track: ${spotifyId}`);
 
@@ -3365,10 +3531,12 @@ app.get('/api/music/resolve/:spotifyId', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/music/resolve-by-metadata', authenticate, async (req, res) => {
+app.get('/api/music/resolve-by-metadata', async (req, res) => {
     const title = normalizeChoiceValue(req.query.title || '');
     const artist = normalizeChoiceValue(req.query.artist || '');
-    const durationMs = Number.parseInt(req.query.durationMs || '0', 10) || 0;
+    const durationMs = Math.max(0, Number.parseInt(req.query.durationMs || '0', 10) || 0)
+        || Math.max(0, Number.parseFloat(req.query.duration || '0') || 0) * 1000;
+    const spotifyId = normalizeChoiceValue(req.query.spotifyId || '');
 
     if (!title) {
         return res.status(400).json({ error: 'Titre requis.' });
@@ -3378,7 +3546,8 @@ app.get('/api/music/resolve-by-metadata', authenticate, async (req, res) => {
         const trackReference = buildTrackReferenceFromMetadata({
             title,
             artist,
-            durationMs
+            durationMs,
+            spotifyId
         });
         const { videoId, resolvedMatch, trackReference: normalizedTrack } = await resolveTrackReferenceToVideo(trackReference, {
             currentVideoId: req.query.currentVideoId || ''
@@ -3389,12 +3558,29 @@ app.get('/api/music/resolve-by-metadata', authenticate, async (req, res) => {
             return res.status(404).json({ error: 'Aucun flux trouvé.' });
         }
 
+        let spotifyTrackInfo = null;
+        if (spotify.hasSpotifyConfig() && (!durationMs || !trackReference.spotifyId)) {
+            try {
+                const spRes = await spotify.searchTracks(`${title} ${artist}`, { limit: 1 });
+                if (spRes && spRes[0]) {
+                    spotifyTrackInfo = spRes[0];
+                }
+            } catch (e) {}
+        }
+
+        const candidateDur = Number(resolvedMatch?.candidate?.duration || resolvedMatch?.candidate?.lengthSeconds || 0);
+        const resolvedDuration = Math.round((normalizedTrack.durationMs || durationMs || spotifyTrackInfo?.durationMs || 0) / 1000) || candidateDur || 0;
+        const resolvedSpotifyId = spotifyTrackInfo?.spotifyId || spotifyTrackInfo?.id || trackReference?.spotifyId || null;
+        const resolvedThumbnail = spotifyTrackInfo?.imageUrl || spotifyTrackInfo?.album?.imageUrl || (Array.isArray(spotifyTrackInfo?.album?.images) && spotifyTrackInfo.album.images[0]?.url) || null;
+
         console.log(`Resolved metadata ${normalizedTrack.name} -> ${videoId} via ${resolvedMatch?.sourceLabel || 'unknown'} (score: ${resolvedMatch?.score || 'n/a'})`);
         return res.json({
             videoId,
-            title: normalizedTrack.name || title,
-            artist: artist || getTrackPrimaryArtistName(normalizedTrack) || 'Artiste inconnu',
-            duration: Math.round((normalizedTrack.durationMs || durationMs || 0) / 1000)
+            title: spotifyTrackInfo?.name || normalizedTrack.name || title,
+            artist: (spotifyTrackInfo?.artists ? spotifyTrackInfo.artists.map(a => a.name).join(', ') : '') || artist || getTrackPrimaryArtistName(normalizedTrack) || 'Artiste inconnu',
+            duration: resolvedDuration,
+            spotifyId: resolvedSpotifyId,
+            thumbnail: resolvedThumbnail
         });
     } catch (error) {
         console.error('Metadata resolution error:', error);
@@ -3419,24 +3605,239 @@ const resolvePipedStreamUrl = async (videoId) => {
 };
 
 // ─── Canvas Spotify (vidéo de fond du Now Playing) ───
-app.get('/api/spotify/connection', authenticate, (req, res) => {
+app.get(['/api/spotify/connection', '/api/ambient/connection'], async (req, res) => {
+    const token = await spotifySession.getValidToken();
     res.json({
         connected: spotifySession.isConnected(),
-        active: Boolean(spotifySession.getToken())
+        active: Boolean(token)
     });
 });
 
-app.get('/api/spotify/canvas/:trackId', authenticate, async (req, res) => {
-    const token = spotifySession.getToken();
+app.get(['/api/spotify/canvas/:trackId', '/api/ambient/:trackId'], async (req, res) => {
+    let trackId = req.params.trackId || '';
+    let title = typeof req.query.title === 'string' ? req.query.title.trim() : '';
+    let artist = typeof req.query.artist === 'string' ? req.query.artist.trim() : '';
+
+    // Handle clients that URL-encoded query params into trackId (e.g. resolve?title=... or resolve%3Ftitle=...)
+    if ((!title || !artist) && (trackId.includes('?') || trackId.includes('%3F') || trackId.includes('&'))) {
+        try {
+            const raw = decodeURIComponent(trackId);
+            if (raw.includes('?')) {
+                const [baseId, search] = raw.split('?');
+                trackId = baseId;
+                const sp = new URLSearchParams(search);
+                if (!title) title = (sp.get('title') || '').trim();
+                if (!artist) artist = (sp.get('artist') || '').trim();
+            }
+        } catch { /* ignore decode error */ }
+    }
+
+    if ((!trackId || trackId.length !== 22 || trackId === 'resolve' || trackId === 'auto') && title) {
+        try {
+            const resolvedId = await spotify.searchTrackId(title, artist);
+            if (resolvedId) trackId = resolvedId;
+        } catch (err) {
+            console.warn('Canvas trackId resolution error:', err.message);
+        }
+    }
+
+    if (!trackId || trackId.length !== 22) {
+        return res.json({ canvasUrl: null, spotifyId: null, connected: spotifySession.isConnected() });
+    }
+
+    let token = await spotifySession.getValidToken();
+    if (!token && spotifySession.isConnected()) {
+        spotifySession.notifyTokenExpired();
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        token = await spotifySession.getValidToken();
+    }
     if (!token) {
-        return res.json({ canvasUrl: null, connected: spotifySession.isConnected() });
+        return res.json({ canvasUrl: null, spotifyId: trackId, connected: false });
     }
     try {
-        const canvasUrl = await spotifyCanvas.getCanvasUrl(req.params.trackId, token);
-        res.json({ canvasUrl: canvasUrl || null, connected: true });
+        const canvasUrl = await spotifyCanvas.getCanvasUrl(trackId, token);
+        res.json({ canvasUrl: canvasUrl || null, spotifyId: trackId, connected: true });
     } catch (error) {
         console.warn('Canvas route error:', error.message);
-        res.json({ canvasUrl: null, connected: true });
+        const isAuthError = error.message === 'token expiré';
+        if (isAuthError) {
+            spotifySession.notifyTokenExpired();
+        }
+        res.json({ canvasUrl: null, spotifyId: trackId, connected: !isAuthError && spotifySession.isConnected() });
+    }
+});
+
+const lyricsMemCache = new Map();
+
+// ─── Paroles synchronisées (LRCLIB via DNS fiable) ───
+app.get('/api/music/lyrics', async (req, res) => {
+    const rawTitle = typeof req.query.title === 'string' ? req.query.title.trim() : '';
+    const rawArtist = typeof req.query.artist === 'string' ? req.query.artist.trim() : '';
+    const rawDuration = Number.parseFloat(req.query.duration || '0') || 0;
+
+    if (!rawTitle) return res.status(400).json({ error: 'Titre requis.' });
+
+    const cacheKey = `${rawArtist.toLowerCase()}|${rawTitle.toLowerCase()}|${Math.round(rawDuration)}`;
+    if (lyricsMemCache.has(cacheKey)) {
+        return res.json(lyricsMemCache.get(cacheKey));
+    }
+
+    const cleanTitle = (t) => {
+        return t
+            .replace(/\s*[\(\[](?:clip|officiel|official|audio|video|lyrics?|paroles|version|remix|hd|4k|feat\.?|ft\.).*?[\)\]]/gi, '')
+            .replace(/\s*-\s*(?:clip|officiel|official|audio|video|lyrics?|paroles).*$/gi, '')
+            .trim();
+    };
+
+    const cleanArtist = (a) => {
+        const first = a.split(/[,&\/]/)[0] || a;
+        return first.replace(/\s+(?:feat\.?|ft\.).*$/gi, '').trim();
+    };
+
+    const lrclibResolver = new dns.Resolver();
+    try { lrclibResolver.setServers(['1.1.1.1', '8.8.8.8', '1.0.0.1']); } catch(e) {}
+    const lrclibAgent = new https.Agent({
+        keepAlive: true,
+        lookup: (hostname, options, callback) => {
+            if (typeof options === 'function') { callback = options; options = {}; }
+            lrclibResolver.resolve4(hostname, (err, addresses) => {
+                if (!err && addresses && addresses.length) {
+                    if (options.all) return callback(null, addresses.map(a => ({ address: a, family: 4 })));
+                    return callback(null, addresses[0], 4);
+                }
+                dns.lookup(hostname, options, callback);
+            });
+        }
+    });
+
+    const queryLRCLIB = (t, a) => {
+        return new Promise((resolve) => {
+            try {
+                const url = `https://lrclib.net/api/search?track_name=${encodeURIComponent(t)}&artist_name=${encodeURIComponent(a)}`;
+                const req = https.get(url, {
+                    agent: lrclibAgent,
+                    headers: { 'User-Agent': 'NeonWave/1.1 (Desktop; lyrics sync)' },
+                    timeout: 7000
+                }, (res) => {
+                    if (res.statusCode < 200 || res.statusCode >= 300) {
+                        res.resume();
+                        return resolve([]);
+                    }
+                    let raw = '';
+                    res.on('data', chunk => { raw += chunk; });
+                    res.on('end', () => {
+                        try {
+                            const list = JSON.parse(raw);
+                            resolve(Array.isArray(list) ? list : []);
+                        } catch {
+                            resolve([]);
+                        }
+                    });
+                });
+                req.on('error', (e) => {
+                    console.warn('LRCLIB query error:', e.message);
+                    resolve([]);
+                });
+                req.on('timeout', () => {
+                    req.destroy();
+                    resolve([]);
+                });
+            } catch (e) {
+                console.warn('LRCLIB request dispatch error:', e.message);
+                resolve([]);
+            }
+        });
+    };
+
+    const scoreCandidate = (cand, targetTitle, targetArtist, targetDuration) => {
+        const norm = (str) => (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        const candT = norm(cand.trackName);
+        const candA = norm(cand.artistName);
+        const wantT = norm(targetTitle);
+        const wantA = norm(targetArtist);
+
+        let score = 0;
+        if (candT === wantT) score += 100;
+        else if (candT.includes(wantT) || wantT.includes(candT)) score += 55;
+
+        if (candA === wantA) score += 65;
+        else if (candA.includes(wantA) || wantA.includes(candA)) score += 50;
+
+        if (targetDuration > 0 && cand.duration > 0) {
+            const delta = Math.abs(targetDuration - cand.duration);
+            if (delta <= 2) score += 70;
+            else if (delta <= 5) score += 50;
+            else if (delta > 20) score -= Math.min(80, delta);
+        }
+        if (cand.syncedLyrics) score += 150;
+        return score;
+    };
+
+    try {
+        let candidates = await queryLRCLIB(rawTitle, rawArtist);
+        if (!candidates.some(c => c.syncedLyrics)) {
+            const cT = cleanTitle(rawTitle);
+            const cA = cleanArtist(rawArtist);
+            if (cT !== rawTitle || cA !== rawArtist) {
+                const fallbackCandidates = await queryLRCLIB(cT, cA);
+                if (fallbackCandidates.length) {
+                    candidates = [...candidates, ...fallbackCandidates];
+                }
+            }
+        }
+
+        const valid = candidates.filter(c => c.syncedLyrics || c.plainLyrics);
+        if (valid.length > 0) {
+            valid.sort((a, b) => scoreCandidate(b, rawTitle, rawArtist, rawDuration) - scoreCandidate(a, rawTitle, rawArtist, rawDuration));
+            const chosen = valid[0];
+            const payload = {
+                syncedLyrics: chosen.syncedLyrics || null,
+                plainLyrics: chosen.plainLyrics || null,
+                duration: chosen.duration || null,
+                source: 'lrclib'
+            };
+            lyricsMemCache.set(cacheKey, payload);
+            if (lyricsMemCache.size > 200) {
+                lyricsMemCache.delete(lyricsMemCache.keys().next().value);
+            }
+            return res.json(payload);
+        }
+
+        return res.status(404).json({ error: 'Paroles introuvables' });
+    } catch (err) {
+        console.error('Lyrics endpoint error:', err);
+        return res.status(500).json({ error: 'Erreur lors de la recherche des paroles' });
+    }
+});
+
+// ─── Paroles word-synced (Spicy Lyrics API — validation) ───
+app.get('/api/lyrics/spicy/:spotifyId', async (req, res) => {
+    const token = await spotifySession.getValidToken();
+    if (!token) return res.json({ error: 'spotify-not-connected' });
+    try {
+        const r = await fetch('https://api.spicylyrics.org/query', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'SpicyLyrics-Version': '6.1.1',
+                'SpicyLyrics-WebAuth': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                queries: [{ operation: 'lyrics', variables: { id: req.params.spotifyId, auth: 'SpicyLyrics-WebAuth' } }],
+                client: { version: '6.1.1' }
+            }),
+            signal: AbortSignal.timeout(12000)
+        });
+        const data = await r.json();
+        const q = Array.isArray(data.queries) ? data.queries.find((x) => x.operationId === '0') : null;
+        if (q?.result?.httpStatus !== 200 || !q?.result?.data) {
+            return res.json({ status: q?.result?.httpStatus || 404 });
+        }
+        const objpack = require('./lib/objpack');
+        const lyrics = objpack.unpack(q.result.data);
+        res.json({ status: 200, lyrics });
+    } catch (error) {
+        res.json({ error: error.message });
     }
 });
 
@@ -3645,16 +4046,40 @@ const serveAudioFromBuffer = (req, res, entry) => {
     res.end(entry.buffer.subarray(start, end + 1));
 };
 
-app.get('/api/music/streams/:id', authenticate, async (req, res) => {
+app.post('/api/music/streams/:id/ticket', (req, res) => {
+    const videoId = extractVideoId({ videoId: req.params.id });
+    if (!videoId) return res.status(400).json({ error: 'Identifiant vidéo invalide.' });
+
+    let userId = 'guest';
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+            const decoded = jwt.verify(authHeader.slice(7), JWT_SECRET);
+            userId = decoded.id || 'guest';
+        } catch {}
+    }
+
+    const ticket = jwt.sign({
+        id: userId,
+        videoId,
+        purpose: 'ios-audio-stream'
+    }, JWT_SECRET, { expiresIn: '2h' });
+
+    res.json({ path: `/api/music/streams/${encodeURIComponent(videoId)}?ticket=${encodeURIComponent(ticket)}` });
+});
+
+app.get('/api/music/streams/:id', authenticateAudioStream, async (req, res) => {
     const videoId = extractVideoId({ videoId: req.params.id });
     if (!videoId) {
         return res.status(400).json({ error: 'Identifiant vidéo invalide.' });
     }
     console.log(`🎵 Stream request for: ${videoId}`);
 
-    const db = getDB();
-    const p = db.users.map(u => u.history).flat().find(h => h?.videoId === videoId);
-    if (p) trackUserHistory(req.user.id, p);
+    if (req.user?.id && req.user.id !== 'guest') {
+        const db = getDB();
+        const p = db.users.map(u => u.history).flat().find(h => h?.videoId === videoId);
+        if (p) trackUserHistory(req.user.id, p);
+    }
 
     try {
         const entry = await loadAudio(videoId);
@@ -3670,11 +4095,71 @@ app.get('/api/music/streams/:id', authenticate, async (req, res) => {
     }
 });
 
+// ─── Clip vidéo (fond de la vue paroles) : 360p en cache RAM ───
+const videoMemCache = new Map();     // videoId -> { buffer, mimeType }
+const videoInFlight = new Map();
+const VIDEO_MEM_CACHE_MAX = 6;       // clips 360p (~8 Mo) => ~50 Mo max
+
+const loadVideoClip = (videoId) => {
+    const cached = videoMemCache.get(videoId);
+    if (cached) {
+        videoMemCache.delete(videoId);
+        videoMemCache.set(videoId, cached);
+        return Promise.resolve(cached);
+    }
+    const existing = videoInFlight.get(videoId);
+    if (existing) return existing;
+
+    const promise = (async () => {
+        try {
+            const result = await ytdlp.downloadVideo(videoId);
+            if (result?.buffer?.length) {
+                videoMemCache.set(videoId, result);
+                while (videoMemCache.size > VIDEO_MEM_CACHE_MAX) {
+                    videoMemCache.delete(videoMemCache.keys().next().value);
+                }
+                console.log(`   🎬 Clip en cache (${(result.buffer.length / 1024 / 1024).toFixed(1)} Mo)`);
+                return result;
+            }
+        } catch (err) {
+            console.warn(`   Clip vidéo échoué pour ${videoId}:`, err.message);
+        }
+        return null;
+    })();
+
+    videoInFlight.set(videoId, promise);
+    promise.finally(() => videoInFlight.delete(videoId));
+    return promise;
+};
+
+app.get('/api/music/video/:id', authenticate, async (req, res) => {
+    const videoId = extractVideoId({ videoId: req.params.id });
+    if (!videoId) {
+        return res.status(400).json({ error: 'Identifiant vidéo invalide.' });
+    }
+    console.log(`🎬 Clip request for: ${videoId}`);
+
+    try {
+        const entry = await loadVideoClip(videoId);
+        if (entry) {
+            return serveAudioFromBuffer(req, res, entry);
+        }
+    } catch (err) {
+        console.error('Video clip error:', err);
+    }
+
+    if (!res.headersSent) {
+        res.status(404).json({ error: 'Clip indisponible.' });
+    }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // USER DATA ROUTES
 // ═══════════════════════════════════════════════════════════════
 
-app.get('/api/spotify/artists/defaults', authenticate, async (req, res) => {
+// Public, read-only catalogue endpoints used by the first-run taste screen.
+// A guest has no account token yet, but still needs official Spotify profiles.
+app.get('/api/spotify/artists/defaults', async (req, res) => {
     try {
         const items = await spotify.getDefaultArtists(MUSIC_ARTIST_OPTIONS);
         res.json({ items, spotifyEnabled: spotify.hasSpotifyConfig() });
@@ -3684,15 +4169,50 @@ app.get('/api/spotify/artists/defaults', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/spotify/search-artists', authenticate, async (req, res) => {
+app.get('/api/spotify/search-artists', async (req, res) => {
     try {
         const query = normalizeChoiceValue(req.query.q || '');
         if (query.length < 2) {
             return res.json({ items: [] });
         }
 
-        const items = await spotify.searchArtists(query, { limit: 8 });
-        res.json({ items, spotifyEnabled: spotify.hasSpotifyConfig() });
+        const normalizeArtistSearchText = (value) => normalizeChoiceValue(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLocaleLowerCase('fr-FR');
+        const normalizedQuery = normalizeArtistSearchText(query);
+        const items = await spotify.searchArtists(query, {
+            limit: 10,
+            exact: true,
+            allowFallback: false
+        });
+        const scored = items
+            .filter((artist) => artist?.spotifyId && artist?.source === 'spotify')
+            .map((artist) => {
+                const name = normalizeArtistSearchText(artist.name);
+                let relevance = 0;
+                if (name === normalizedQuery) relevance = 1000;
+                else if (name.startsWith(normalizedQuery)) relevance = 700;
+                else if (name.includes(normalizedQuery)) relevance = 450;
+                return { artist, relevance, primary: relevance >= 700 };
+            })
+            .filter((entry) => entry.relevance > 0)
+            .sort((left, right) => right.relevance - left.relevance
+                || (right.artist.popularity || 0) - (left.artist.popularity || 0));
+        const precise = scored.some((entry) => entry.primary)
+            ? scored.filter((entry) => entry.primary)
+            : scored;
+        const seenNames = new Set();
+        const results = precise
+            .filter((entry) => {
+                const key = normalizeArtistSearchText(entry.artist.name);
+                if (!key || seenNames.has(key)) return false;
+                seenNames.add(key);
+                return true;
+            })
+            .slice(0, 6)
+            .map((entry) => entry.artist);
+        res.json({ items: results, spotifyEnabled: spotify.hasSpotifyConfig() });
     } catch (error) {
         console.error('Spotify artist search error:', error);
         res.status(error.status || 500).json({ error: getSpotifyClientError(error, 'Recherche artiste impossible.') });
@@ -3807,6 +4327,13 @@ app.get('/api/spotify/artists/:id/related', authenticate, async (req, res) => {
 
 app.get('/api/user/music-preferences', authenticate, async (req, res) => {
     try {
+        if (req.user?.id === 'guest') {
+            return res.json({
+                musicOnboardingCompleted: false,
+                musicPreferences: { genres: [], artists: [] },
+                followedArtists: []
+            });
+        }
         const db = getDB();
         const user = getUserById(db, req.user.id);
         if (!user) return res.status(404).json({ error: 'Utilisateur introuvable.' });
@@ -3848,6 +4375,14 @@ app.post('/api/user/music-preferences', authenticate, async (req, res) => {
 
         // Accept fallback artists even when Spotify config exists but API is rate-limited
         // Previously this blocked onboarding entirely when Spotify returned 429 errors
+
+        if (req.user?.id === 'guest') {
+            return res.json({
+                musicOnboardingCompleted: true,
+                musicPreferences: { genres, artists },
+                followedArtists: artists
+            });
+        }
 
         const db = getDB();
         const user = getUserById(db, req.user.id);
@@ -4524,6 +5059,188 @@ app.delete('/api/admin/ban-ip/:ip', authenticate, requireAdmin, (req, res) => {
     saveDB(db);
     console.log(`✅ IP unbanned: ${req.params.ip}`);
     res.json({ success: true });
+});
+
+// ─── Import Spotify Playlist ─────────────────────────────────────────────────
+// GET /api/spotify/import-playlist?url=<spotify_playlist_url>
+// Fetches tracks from any public Spotify playlist (via embed scrape, spotify-url-info or API)
+// and returns them in NeonWave's track format.
+let spotifyUrlInfo = null;
+try {
+    spotifyUrlInfo = require('spotify-url-info')(fetch);
+} catch (e) {}
+
+const resolveTrackCover = async (artist, title) => {
+    if (!artist && !title) return null;
+    const q = `${artist || ''} ${title || ''}`.trim();
+    if (!q) return null;
+    try {
+        const res = await fetch(`https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=1`, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            signal: AbortSignal.timeout(2500)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const cover = data.data?.[0]?.album?.cover_big || data.data?.[0]?.album?.cover_medium;
+            if (cover) return cover;
+        }
+    } catch (_) {}
+
+    try {
+        const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=1`, {
+            headers: { 'User-Agent': 'NeonWave/1.0' },
+            signal: AbortSignal.timeout(2500)
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const raw = data.results?.[0]?.artworkUrl100;
+            if (raw) return raw.replace('100x100bb', '600x600bb');
+        }
+    } catch (_) {}
+
+    return null;
+};
+
+const batchResolveCovers = async (tracks) => {
+    if (!Array.isArray(tracks) || tracks.length === 0) return tracks;
+    const batchSize = 10;
+    for (let i = 0; i < tracks.length; i += batchSize) {
+        const chunk = tracks.slice(i, i + batchSize);
+        await Promise.all(chunk.map(async (track) => {
+            if (!track.thumbnail) {
+                const cover = await resolveTrackCover(track.artist, track.title);
+                if (cover) track.thumbnail = cover;
+            }
+        }));
+    }
+    return tracks;
+};
+
+const fetchSpotifyPlaylistEmbed = async (playlistId) => {
+    const res = await fetch(`https://open.spotify.com/embed/playlist/${encodeURIComponent(playlistId)}`, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7'
+        }
+    });
+    if (!res.ok) throw new Error(`Spotify HTTP ${res.status}`);
+    const html = await res.text();
+    const m = html.match(/id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+    if (!m) throw new Error("Données de playlist introuvables.");
+    const data = JSON.parse(m[1]);
+    const entity = data.props?.pageProps?.state?.data?.entity;
+    if (!entity) throw new Error("Playlist introuvable ou privée.");
+
+    const coverUrl = entity.coverArt?.sources?.[0]?.url || '';
+    const tracks = (entity.trackList || []).map(t => {
+        const spotifyId = t.uri ? t.uri.replace('spotify:track:', '') : null;
+        return {
+            id: spotifyId ? `sp-${spotifyId}` : `nw-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            spotifyId,
+            title: t.title || '',
+            artist: t.subtitle || '',
+            album: entity.name || null,
+            duration: t.duration ? t.duration / 1000 : 0,
+            thumbnail: null
+        };
+    });
+
+    await batchResolveCovers(tracks);
+
+    return {
+        name: entity.name || 'Playlist Spotify',
+        description: entity.subtitle || '',
+        imageUrl: coverUrl,
+        ownerName: entity.subtitle || '',
+        totalTracks: tracks.length,
+        tracks
+    };
+};
+
+app.get('/api/spotify/import-playlist', async (req, res) => {
+    const { url: playlistInput, limit } = req.query;
+    if (!playlistInput || typeof playlistInput !== 'string' || !playlistInput.trim()) {
+        return res.status(400).json({ error: 'Paramètre url requis.' });
+    }
+    const cleanInput = playlistInput.trim();
+
+    // 1. Try spotify-url-info (supports full playlists, albums, share links, handles all formats)
+    if (spotifyUrlInfo) {
+        try {
+            const details = await spotifyUrlInfo.getDetails(cleanInput);
+            if (details && details.tracks && details.tracks.length > 0) {
+                const tracks = details.tracks.map((t, idx) => {
+                    const spotifyId = t.uri ? t.uri.replace('spotify:track:', '') : null;
+                    return {
+                        id: spotifyId ? `sp-${spotifyId}` : `nw-${Date.now()}-${idx}`,
+                        spotifyId,
+                        title: t.name || t.title || '',
+                        artist: t.artist || '',
+                        album: details.preview?.title || null,
+                        duration: t.duration ? t.duration / 1000 : 0,
+                        thumbnail: null
+                    };
+                });
+
+                await batchResolveCovers(tracks);
+
+                return res.json({
+                    name: details.preview?.title || 'Playlist Spotify',
+                    description: details.preview?.description || '',
+                    imageUrl: details.preview?.image || '',
+                    ownerName: details.preview?.author || '',
+                    totalTracks: tracks.length,
+                    tracks
+                });
+            }
+        } catch (urlInfoErr) {
+            console.warn('[SpotifyImport] spotify-url-info fallback:', urlInfoErr.message);
+        }
+    }
+
+    const idMatch = cleanInput.match(/playlist[\/:]([A-Za-z0-9]{22})/i);
+    const playlistId = idMatch ? idMatch[1] : null;
+
+    if (!playlistId) {
+        return res.status(400).json({ error: 'Format d’URL Spotify invalide (ex: https://open.spotify.com/playlist/...)' });
+    }
+
+    // 2. Try direct embed scraper
+    try {
+        const result = await fetchSpotifyPlaylistEmbed(playlistId);
+        if (result.tracks && result.tracks.length > 0) {
+            return res.json(result);
+        }
+    } catch (embedErr) {
+        console.warn('[SpotifyImport] Embed scrape fallback:', embedErr.message);
+    }
+
+    // 3. Fallback to official API
+    try {
+        const result = await spotify.getPlaylist(cleanInput, { limit: 100 });
+        const tracks = (result.tracks || []).map(t => ({
+            id: t.spotifyId ? `sp-${t.spotifyId}` : `nw-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            spotifyId: t.spotifyId || null,
+            title: t.title || '',
+            artist: t.artist || '',
+            album: t.album || null,
+            duration: t.duration || 0,
+            thumbnail: t.thumbnail || null,
+        }));
+
+        await batchResolveCovers(tracks);
+
+        return res.json({
+            name: result.name || 'Playlist Spotify',
+            description: result.description || '',
+            imageUrl: result.imageUrl || '',
+            ownerName: result.ownerName || '',
+            totalTracks: result.totalTracks || tracks.length,
+            tracks
+        });
+    } catch (err) {
+        return res.status(400).json({ error: 'Impossible de récupérer cette playlist. Assurez-vous qu’elle est publique.' });
+    }
 });
 
 // ═══════════════════════════════════════════════════════════════

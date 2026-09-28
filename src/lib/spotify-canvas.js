@@ -3,6 +3,8 @@
 // Requête et réponse sont en Protocol Buffers ; on les encode/parse à la main
 // (le schéma se limite à quelques champs string).
 
+const dns = require('dns');
+try { dns.setServers(['1.1.1.1', '8.8.8.8', '1.0.0.1']); } catch(e) {}
 const CANVAS_ENDPOINT = 'https://spclient.wg.spotify.com/canvaz-cache/v0/canvases';
 const canvasCache = new Map(); // trackId -> { url, cachedAt } (url '' = pas de canvas)
 const CACHE_TTL = 6 * 60 * 60 * 1000;
@@ -58,20 +60,26 @@ const getCanvasUrl = async (trackId, token) => {
         });
 
         if (!response.ok) {
-            // 401 = token périmé ; on ne met pas en cache pour retenter plus tard.
-            if (response.status === 401) throw new Error('token expiré');
+            console.warn(`Canvas HTTP ${response.status} for ${trackId}`);
+            // 401 ou 403 = token périmé ou non autorisé (ex: token invité anonyme) ;
+            // on ne met PAS en cache pour pouvoir re-tester dès la reconnexion.
+            if (response.status === 401 || response.status === 403) throw new Error('token expiré');
             canvasCache.set(trackId, { url: '', cachedAt: Date.now() });
             return '';
         }
 
         const buffer = Buffer.from(await response.arrayBuffer());
         const url = extractCanvasUrl(buffer);
+        if (!url) console.warn(`Canvas response contained no video for ${trackId} (${buffer.length} bytes)`);
         canvasCache.set(trackId, { url, cachedAt: Date.now() });
         return url;
     } catch (error) {
         console.warn(`Canvas fetch failed for ${trackId}:`, error.message);
+        if (error.message === 'token expiré') throw error;
         return '';
     }
 };
 
-module.exports = { getCanvasUrl };
+const clearCache = () => canvasCache.clear();
+
+module.exports = { getCanvasUrl, clearCache };

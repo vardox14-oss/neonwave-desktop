@@ -43,6 +43,12 @@ const Player = {
     autoplayOn: true,
     shuffleHistory: [], // tracks already shuffled to avoid repeats
 
+    // --- Crossfade (titres enchaînés) ---
+    crossfadeEnabled: false,
+    crossfadeDuration: 0, // secondes (0-12)
+    crossfadeActive: false,
+    crossfadeAudio: null,
+
     normalizeTrackId(value) {
         const normalized = String(value || '').trim();
         if (!normalized || normalized === 'undefined' || normalized === 'null') {
@@ -753,6 +759,9 @@ const Player = {
 
     // ────────────────────────── PLAY ──────────────────────────
     async playTrack(id, title, artist, thumb, options = {}) {
+        // Un nouveau morceau démarre -> on coupe tout fondu enchaîné en cours.
+        this.cancelCrossfade();
+
         if (this.isLocalTrack(id, options)) {
             return this.playLocalTrack(id, title, artist, thumb, options);
         }
@@ -1433,6 +1442,7 @@ const Player = {
             return;
         }
         if (this.isPlaying) {
+            if (this.crossfadeActive) this.cancelCrossfade();
             this.ytPlayer.pauseVideo();
         } else {
             this.ytPlayer.playVideo();
@@ -1778,6 +1788,161 @@ const Player = {
     },
 
     // ────────────────────────── PROGRESS ──────────────────────────
+    // Index du prochain morceau éligible au crossfade (linéaire ou repeat all).
+    getCrossfadeNextIndex() {
+        if (this.repeatMode === 'one') return -1;
+        if (this.shuffleOn) return -1; // en aléatoire, on garde l'enchaînement normal
+        if (this.queueIndex < this.queue.length - 1) return this.queueIndex + 1;
+        if (this.repeatMode === 'all' && this.queue.length > 0) return 0;
+        return -1;
+    },
+
+    // Déclenche le fondu enchaîné quand il reste <= crossfadeDuration secondes.
+    maybeStartCrossfade(currentTime, duration) {
+        if (!this.crossfadeEnabled || this.crossfadeDuration <= 0) return;
+        if (this.crossfadeActive) return;
+        if (this.activeEngine !== 'youtube') return;
+        if (!duration || duration < this.crossfadeDuration + 3) return;
+
+        const remaining = duration - currentTime;
+        if (remaining > this.crossfadeDuration || remaining <= 0.3) return;
+
+        const nextIndex = this.getCrossfadeNextIndex();
+        if (nextIndex < 0) return;
+
+        this.startCrossfade(nextIndex);
+    },
+
+    async startCrossfade(nextIndex) {
+        if (this.crossfadeActive) return;
+        this.crossfadeActive = true;
+        // Ignore la fin naturelle de l'ancien morceau pendant le fondu.
+        this.suppressEndedEvent = true;
+
+        const nextTrack = this.queue[nextIndex];
+        const currentAudio = this.ytPlayer && this.ytPlayer.audio;
+        if (!nextTrack || !currentAudio) { this.crossfadeActive = false; return; }
+
+        // Résout la source YouTube du morceau suivant (souvent déjà préchargée).
+        let nextVideoId;
+        try {
+            const candidateId = this.normalizeTrackId(nextTrack.videoId || nextTrack.id || '');
+            const spotifyId = this.normalizeTrackId(
+                nextTrack.spotifyId || (this.isLikelySpotifyId(candidateId) ? candidateId : '')
+            );
+            nextVideoId = await this.resolvePlayableVideoId(candidateId, {
+                ...nextTrack,
+                spotifyId,
+                title: nextTrack.title || '',
+                artist: nextTrack.artist || '',
+                durationMs: this.getTrackDurationMs(nextTrack)
+            });
+        } catch {
+            this.crossfadeActive = false;
+            return;
+        }
+
+        // La piste a pu changer entre-temps (skip manuel) -> on annule.
+        if (!this.isLikelyYouTubeVideoId(nextVideoId) || this.queue[nextIndex] !== nextTrack) {
+            this.crossfadeActive = false;
+            return;
+        }
+
+        const token = localStorage.getItem('token') || '';
+        const targetVol = this.normalizeVolume(this.volume) / 100;
+        const fadeAudio = new Audio(`/api/music/streams/${nextVideoId}?token=${token}`);
+        fadeAudio.preload = 'auto';
+        fadeAudio.volume = 0;
+        fadeAudio.muted = false;
+        this.crossfadeAudio = fadeAudio;
+
+        try {
+            await fadeAudio.play();
+        } catch {
+            this.crossfadeAudio = null;
+            this.crossfadeActive = false;
+            return;
+        }
+
+        const startAt = performance.now();
+        const durationMs = this.crossfadeDuration * 1000;
+
+        const step = () => {
+            // Annulé (skip, pause manuelle...) : on nettoie sans swapper.
+            if (this.crossfadeAudio !== fadeAudio || !this.crossfadeActive) {
+                return;
+            }
+            const t = Math.min(1, (performance.now() - startAt) / durationMs);
+            try { currentAudio.volume = Math.max(0, targetVol * (1 - t)); } catch {}
+            try { fadeAudio.volume = Math.min(targetVol, targetVol * t); } catch {}
+
+            if (t < 1) {
+                requestAnimationFrame(step);
+            } else {
+                this.finishCrossfade(fadeAudio, nextIndex, nextVideoId, nextTrack, targetVol);
+            }
+        };
+        requestAnimationFrame(step);
+    },
+
+    finishCrossfade(fadeAudio, nextIndex, nextVideoId, nextTrack, targetVol) {
+        if (this.crossfadeAudio !== fadeAudio) return;
+
+        // Le morceau suivant joue déjà -> on l'adopte comme audio principal.
+        try { fadeAudio.volume = targetVol; } catch {}
+        this.ytPlayer.swapToAudio(fadeAudio, nextVideoId);
+        this.crossfadeAudio = null;
+        this.crossfadeActive = false;
+        this.suppressEndedEvent = false;
+        // Restaure le volume plein sur le nouveau morceau.
+        try { this.ytPlayer.setVolume(this.normalizeVolume(this.volume)); } catch {}
+
+        // Met à jour l'état de la file SANS recharger (le son continue).
+        this.queueIndex = nextIndex;
+        const track = {
+            ...nextTrack,
+            id: nextVideoId,
+            videoId: nextVideoId
+        };
+        this.currentTrack = track;
+        this.pendingTrackId = nextVideoId;
+        this.triedProxyFallback = false;
+        this.addToHistory(track);
+        this.saveResume(track, 0);
+        this.updateNowPlaying(track);
+        this.prefetchUpcomingTracks();
+        this.setPlaying(true);
+
+        try {
+            if (typeof VideoPlayer !== 'undefined') VideoPlayer.syncTrackChange(track);
+        } catch (e) { console.warn('Video sync error (crossfade):', e); }
+
+        if (typeof NW !== 'undefined' && NW.fetchWithAuth) {
+            NW.fetchWithAuth('/api/music/history', {
+                method: 'POST',
+                body: JSON.stringify(track)
+            }).catch(() => {});
+        }
+    },
+
+    // Annule un crossfade en cours (skip manuel, pause, seek).
+    cancelCrossfade() {
+        if (!this.crossfadeActive && !this.crossfadeAudio) return;
+        const fadeAudio = this.crossfadeAudio;
+        this.crossfadeAudio = null;
+        this.crossfadeActive = false;
+        this.suppressEndedEvent = false;
+        if (fadeAudio) {
+            try { fadeAudio.pause(); fadeAudio.removeAttribute('src'); fadeAudio.load(); } catch {}
+        }
+        // Restaure le volume plein sur l'audio courant
+        try {
+            if (this.ytPlayer && this.ytPlayer.audio) {
+                this.ytPlayer.audio.volume = this.normalizeVolume(this.volume) / 100;
+            }
+        } catch {}
+    },
+
     startProgressTracking() {
         this.stopProgressTracking();
         this.progressInterval = setInterval(() => {
@@ -1823,6 +1988,9 @@ const Player = {
                     remainingEl.style.display = 'inline';
                 }
 
+                // Titres enchaînés (crossfade) : déclenche le fondu avant la fin
+                this.maybeStartCrossfade(currentTime, duration);
+
                 // Periodically save state (every 5s)
                 if (Math.floor(currentTime) % 5 === 0 && Math.floor(currentTime) !== this.lastSavedProgress) {
                     this.lastSavedProgress = Math.floor(currentTime);
@@ -1862,6 +2030,14 @@ const Player = {
                 this.setVolume(e.target.value);
             });
         }
+
+        // Réglage crossfade (titres enchaînés)
+        this.crossfadeEnabled = localStorage.getItem('nw_crossfade_enabled') === '1';
+        this.crossfadeDuration = parseInt(localStorage.getItem('nw_crossfade_duration') || '0', 10) || 0;
+
+        const scrubCancelsCrossfade = () => this.cancelCrossfade();
+        document.getElementById('progressSlider')?.addEventListener('input', scrubCancelsCrossfade);
+        document.getElementById('mpProgressSlider')?.addEventListener('input', scrubCancelsCrossfade);
 
         // Load data
         this.loadResolvedVideoCache();
@@ -1959,38 +2135,47 @@ class MockYTPlayer {
         this.audio.setAttribute('webkit-playsinline', '');
         
         // Set up event mapping
-        this.audio.addEventListener('canplay', () => {
+        this.bindEvents(this.audio);
+
+        // Trigger onReady initially so player knows it's initialized
+        setTimeout(() => {
+            if (!this.readyTriggered) {
+                this.readyTriggered = true;
+                if (this.events.onReady) this.events.onReady();
+            }
+        }, 100);
+    }
+
+    // Attache les événements à un élément audio (réutilisable après un swap crossfade)
+    bindEvents(audio) {
+        audio.addEventListener('canplay', () => {
             if (!this.readyTriggered) {
                 this.readyTriggered = true;
                 if (this.events.onReady) this.events.onReady();
             }
         });
-        
-        this.audio.addEventListener('play', () => {
-            if (this.events.onStateChange) {
+        audio.addEventListener('play', () => {
+            if (audio === this.audio && this.events.onStateChange) {
                 this.events.onStateChange({ data: window.YT.PlayerState.PLAYING });
             }
         });
-        
-        this.audio.addEventListener('playing', () => {
-            if (this.events.onStateChange) {
+        audio.addEventListener('playing', () => {
+            if (audio === this.audio && this.events.onStateChange) {
                 this.events.onStateChange({ data: window.YT.PlayerState.PLAYING });
             }
         });
-        
-        this.audio.addEventListener('pause', () => {
-            if (this.events.onStateChange) {
+        audio.addEventListener('pause', () => {
+            if (audio === this.audio && this.events.onStateChange) {
                 this.events.onStateChange({ data: window.YT.PlayerState.PAUSED });
             }
         });
-        
-        this.audio.addEventListener('ended', () => {
-            if (this.events.onStateChange) {
+        audio.addEventListener('ended', () => {
+            if (audio === this.audio && this.events.onStateChange) {
                 this.events.onStateChange({ data: window.YT.PlayerState.ENDED });
             }
         });
-        
-        this.audio.addEventListener('error', (e) => {
+        audio.addEventListener('error', (e) => {
+            if (audio !== this.audio) return;
             console.error('Audio element error:', e);
 
             // Un seul nouvel essai (URL googlevideo expirée -> re-résolution serveur)
@@ -2008,16 +2193,25 @@ class MockYTPlayer {
                 this.events.onError({ data: 1 }); // generic error code
             }
         });
-
-        // Trigger onReady initially so player knows it's initialized
-        setTimeout(() => {
-            if (!this.readyTriggered) {
-                this.readyTriggered = true;
-                if (this.events.onReady) this.events.onReady();
-            }
-        }, 100);
     }
-    
+
+    // Remplace l'audio courant par un autre déjà en lecture (fin de crossfade).
+    swapToAudio(newAudio, videoId) {
+        const oldAudio = this.audio;
+        try {
+            oldAudio.pause();
+            oldAudio.removeAttribute('src');
+            oldAudio.load();
+        } catch { /* ignore */ }
+
+        this.audio = newAudio;
+        this.currentVideoId = videoId;
+        this.triedStreamRetry = false;
+        this.readyTriggered = true;
+        newAudio.muted = this.muted;
+        this.bindEvents(newAudio);
+    }
+
     loadVideoById(options) {
         let videoId = '';
         let startSeconds = 0;
@@ -2168,6 +2362,7 @@ window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
 // ────────────────────────── KARAOKE MODE MANAGER ──────────────────────────
 window.Karaoke = {
     isOpen: false,
+    animFrameId: null,
 
     toggle() {
         if (this.isOpen) {
@@ -2189,6 +2384,7 @@ window.Karaoke = {
         
         this.update(Player.currentTrack);
         this.updatePlayPauseState(Player.isPlaying);
+        this.startAnimLoop();
         
         document.body.style.overflow = 'hidden';
     },
@@ -2198,12 +2394,37 @@ window.Karaoke = {
         if (!overlay) return;
         
         this.isOpen = false;
+        this.stopAnimLoop();
         overlay.classList.remove('active');
+        overlay.classList.remove('has-video-bg');
         setTimeout(() => {
             if (!this.isOpen) overlay.style.display = 'none';
         }, 300);
-        
+
+        // Stoppe le clip de fond (évite qu'il continue à charger/jouer)
+        const videoBg = document.getElementById('karaokeVideoBg');
+        if (videoBg) videoBg.innerHTML = '';
+        this.currentVideoBgId = '';
+
         document.body.style.overflow = '';
+    },
+
+    startAnimLoop() {
+        this.stopAnimLoop();
+        const tick = () => {
+            if (!this.isOpen) return;
+            const curTime = Player.getActiveCurrentTime();
+            this.updateLetterHighlight(curTime);
+            this.animFrameId = requestAnimationFrame(tick);
+        };
+        this.animFrameId = requestAnimationFrame(tick);
+    },
+
+    stopAnimLoop() {
+        if (this.animFrameId) {
+            cancelAnimationFrame(this.animFrameId);
+            this.animFrameId = null;
+        }
     },
 
     update(track) {
@@ -2219,15 +2440,66 @@ window.Karaoke = {
             if (artistEl) artistEl.textContent = '—';
             this.renderLyrics(null);
             this.updateBackground(null);
+            this.loadVideoBackground(null);
             return;
         }
-        
+
         if (coverImg) coverImg.src = track.thumb || 'https://images.unsplash.com/photo-1493225255756-d9584f8606e9?w=500&auto=format&fit=crop';
         if (titleEl) titleEl.textContent = track.title || 'Sans titre';
         if (artistEl) artistEl.textContent = track.artist || 'Artiste inconnu';
-        
+
         this.updateBackground(track.thumb);
         this.renderLyrics(Player.currentLyrics);
+        // Canvas Spotify en fond ; sinon l'animation (pochette floutée) reste.
+        this.loadVideoBackground(track);
+    },
+
+    // Charge le Canvas Spotify du morceau en fond (muet, boucle) — rapide,
+    // petite boucle vidéo hébergée. Si pas de Canvas, la pochette animée reste.
+    async loadVideoBackground(track) {
+        const container = document.getElementById('karaokeVideoBg');
+        const overlay = document.getElementById('karaokeOverlay');
+        if (!container) return;
+
+        const spotifyId = track && (
+            track.spotifyId
+            || (typeof track.id === 'string' && track.id.length === 22 ? track.id : '')
+        );
+        const key = spotifyId || '';
+        if (this.currentVideoBgId === key) return; // déjà chargé
+        this.currentVideoBgId = key;
+
+        container.innerHTML = '';
+        if (overlay) overlay.classList.remove('has-video-bg');
+        if (!spotifyId || !window.NeonWaveDesktop) return; // pas de Canvas -> animation
+
+        try {
+            const headers = (typeof Auth !== 'undefined' && Auth.getAuthHeaders)
+                ? Auth.getAuthHeaders()
+                : { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` };
+            const res = await fetch(`/api/spotify/canvas/${encodeURIComponent(spotifyId)}`, { headers });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (this.currentVideoBgId !== key || !data.canvasUrl) return;
+
+            const video = document.createElement('video');
+            video.muted = true;
+            video.loop = true;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.setAttribute('playsinline', '');
+            video.preload = 'auto';
+            video.src = data.canvasUrl;
+            video.addEventListener('canplay', () => {
+                if (this.currentVideoBgId !== key) return;
+                video.play().then(() => {
+                    if (this.currentVideoBgId === key && overlay) overlay.classList.add('has-video-bg');
+                }).catch(() => {});
+            });
+            container.appendChild(video);
+        } catch (err) {
+            console.warn('Canvas karaoke error:', err);
+        }
     },
 
     updateBackground(imageUrl) {
@@ -2303,12 +2575,16 @@ window.Karaoke = {
             const isSynced = line.time !== null;
             let content = '';
             if (isSynced) {
-                content = line.text.split('').map((char, charIdx) => {
-                    if (char === ' ') {
-                        return `<span class="lyric-char space" data-char-index="${charIdx}"> </span>`;
-                    }
-                    return `<span class="lyric-char" data-char-index="${charIdx}">${Player.escapeHTML(char)}</span>`;
-                }).join('');
+                const words = line.text.split(' ');
+                let charCounter = 0;
+                content = words.map((wordText) => {
+                    const letters = wordText.split('').map((char) => {
+                        const cIdx = charCounter++;
+                        return `<span class="letter lyric-char" data-char-index="${cIdx}">${Player.escapeHTML(char)}</span>`;
+                    }).join('');
+                    charCounter++; // for space
+                    return `<span class="word">${letters}</span>`;
+                }).join('<span class="lyric-char space"> </span>');
             } else {
                 content = Player.escapeHTML(line.text);
             }
@@ -2319,7 +2595,7 @@ window.Karaoke = {
                 lineDuration = lyricsObject.lines[index + 1].time - line.time;
             }
             
-            return `<p class="lyrics-line" data-lyrics-index="${index}"${isSynced ? ` data-time="${line.time}" data-duration="${lineDuration}"` : ''}>${content}</p>`;
+            return `<p class="lyrics-line line NotSung" data-lyrics-index="${index}"${isSynced ? ` data-time="${line.time}" data-duration="${lineDuration}"` : ''}>${content}</p>`;
         }).join('');
         
         container.querySelectorAll('.lyrics-line').forEach(line => {
@@ -2337,29 +2613,50 @@ window.Karaoke = {
     updateLetterHighlight(currentTime) {
         if (!this.isOpen) return;
         
-        const activeLine = document.querySelector('#karaokeLyricsContent .lyrics-line.active');
+        const activeLine = document.querySelector('#karaokeLyricsContent .lyrics-line.active, #karaokeLyricsContent .line.Active');
         if (!activeLine) return;
         
         const startTime = parseFloat(activeLine.getAttribute('data-time'));
         const duration = parseFloat(activeLine.getAttribute('data-duration'));
         if (isNaN(startTime) || isNaN(duration) || duration <= 0) return;
         
-        // Offset of 0.22s to align with the active line offset and compensate for YouTube API latency
         const offset = 0.22;
         const elapsed = (currentTime + offset) - startTime;
         const progress = Math.max(0, Math.min(1, elapsed / duration));
         
-        const chars = activeLine.querySelectorAll('.lyric-char');
+        // Continuous gradient sweep progress (-20% to 100%)
+        const targetGradientPos = -20 + 120 * progress;
+        activeLine.style.setProperty('--gradient-position', `${targetGradientPos.toFixed(1)}%`);
+        
+        const chars = activeLine.querySelectorAll('.lyric-char:not(.space)');
         const totalChars = chars.length;
         if (totalChars === 0) return;
-        
-        const charsToHighlight = Math.floor(progress * totalChars);
-        
+
+        const front = progress * totalChars;
+        const frontIndex = Math.floor(front);
+
         chars.forEach((char, idx) => {
-            if (idx <= charsToHighlight) {
-                char.classList.add('revealed');
+            const distance = Math.abs(idx - front);
+            // Exact Spicy Lyrics 6.1.1 letter wave proximity falloff
+            const falloff = Math.max(0, 1 / (1 + Math.pow(distance, 2.8)));
+            const glowFalloff = Math.max(0, 1 / (1 + distance * 0.9));
+
+            const isSung = idx <= frontIndex;
+            char.classList.toggle('revealed', isSung);
+            char.classList.toggle('Sung', isSung);
+            char.classList.toggle('NotSung', !isSung);
+            char.classList.toggle('current', idx === frontIndex);
+
+            if (falloff > 0.04) {
+                const scale = 0.95 + (1.175 - 0.95) * falloff;
+                const yOffset = -0.018 * 42 * falloff; // px
+                char.style.transform = `translate3d(0, ${yOffset.toFixed(2)}px, 0) scale(${scale.toFixed(3)})`;
+                char.style.setProperty('--text-shadow-opacity', `${Math.min(glowFalloff * 95, 100).toFixed(0)}%`);
+                char.style.setProperty('--text-shadow-blur-radius', `${(4 + 14 * glowFalloff).toFixed(1)}px`);
             } else {
-                char.classList.remove('revealed');
+                char.style.transform = isSung ? 'translate3d(0, 0, 0) scale(1)' : 'translate3d(0, 0, 0) scale(0.95)';
+                char.style.setProperty('--text-shadow-opacity', '0%');
+                char.style.setProperty('--text-shadow-blur-radius', '4px');
             }
         });
     },
@@ -2367,10 +2664,28 @@ window.Karaoke = {
     highlightLine(activeIndex) {
         if (!this.isOpen) return;
         
-        const lines = document.querySelectorAll('#karaokeLyricsContent .lyrics-line');
+        const lines = document.querySelectorAll('#karaokeLyricsContent .lyrics-line, #karaokeLyricsContent .line');
         lines.forEach((line, index) => {
-            line.classList.toggle('active', index === activeIndex);
-            line.classList.toggle('past', index < activeIndex);
+            const isActive = (index === activeIndex);
+            const isPast = (index < activeIndex);
+            const isNotSung = (index > activeIndex);
+
+            line.classList.toggle('active', isActive);
+            line.classList.toggle('Active', isActive);
+            line.classList.toggle('past', isPast);
+            line.classList.toggle('Sung', isPast);
+            line.classList.toggle('NotSung', isNotSung);
+
+            // Exact Spicy Lyrics depth of field distance blur
+            const distance = Math.abs(index - activeIndex);
+            const blurAmount = (isActive || distance === 0) ? '0px' : `${Math.min(distance * 2.2, 10).toFixed(1)}px`;
+            line.style.setProperty('--BlurAmount', blurAmount);
+
+            if (isPast) {
+                line.style.setProperty('--gradient-position', '100%');
+            } else if (isNotSung) {
+                line.style.setProperty('--gradient-position', '-20%');
+            }
         });
         
         const activeLine = document.querySelector(`#karaokeLyricsContent [data-lyrics-index="${activeIndex}"]`);

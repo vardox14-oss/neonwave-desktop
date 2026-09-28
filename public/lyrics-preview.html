@@ -1,0 +1,1513 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spicy Lyrics 6.1.1 — Démo Exacte des Animations (Code Source Réel)</title>
+  <style>
+    :root {
+      --DefaultLyricsSize: clamp(1.85rem, 3.8vw, 3.2rem);
+      --lyrics-line-height: 1.1818181818;
+      --BlurAmount: 0px;
+      --DefaultLyricsScale: 0.95;
+      --Vocal-NotSung-opacity: 0.51;
+      --Vocal-Active-opacity: 1;
+      --Vocal-Sung-opacity: 0.497;
+      --Vocal-Hover-opacity: 1;
+      --gradient-degrees: 90deg;
+      --gradient-alpha: 0.85;
+      --gradient-alpha-end: 0.35;
+      --gradient-position: -20%;
+      --gradient-offset: 0%;
+      --text-shadow-blur-radius: 4px;
+      --text-shadow-opacity: 0%;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0b0d14;
+      color: #ffffff;
+      min-height: 100vh;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+    }
+
+    /* ─── FOND DYNAMIQUE AMBIENT LIQUIDE ─────────────────────────────────── */
+    .ambient-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+      filter: saturate(2.4) brightness(0.55);
+    }
+
+    .ambient-blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(85px);
+      opacity: 0.65;
+      animation: floatMesh 16s ease-in-out infinite alternate;
+    }
+
+    .blob-1 {
+      width: 65vw; height: 65vw;
+      background: radial-gradient(circle, #ff2d55 0%, #af52de 70%, transparent 100%);
+      top: -15%; left: -10%;
+      animation-duration: 14s;
+    }
+
+    .blob-2 {
+      width: 55vw; height: 55vw;
+      background: radial-gradient(circle, #5856d6 0%, #007aff 70%, transparent 100%);
+      bottom: -10%; right: -10%;
+      animation-duration: 18s;
+      animation-delay: -5s;
+    }
+
+    .blob-3 {
+      width: 45vw; height: 45vw;
+      background: radial-gradient(circle, #34c759 0%, #00c7be 70%, transparent 100%);
+      top: 30%; left: 35%;
+      opacity: 0.35;
+      animation-duration: 22s;
+      animation-delay: -9s;
+    }
+
+    @keyframes floatMesh {
+      0% { transform: translate(0, 0) scale(1) rotate(0deg); }
+      50% { transform: translate(6%, 8%) scale(1.12) rotate(45deg); }
+      100% { transform: translate(-5%, -4%) scale(0.95) rotate(-30deg); }
+    }
+
+    .bg-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(10, 12, 20, 0.45);
+      backdrop-filter: blur(35px);
+      -webkit-backdrop-filter: blur(35px);
+      z-index: 1;
+    }
+
+    /* ─── BARRE D'OUTILS ET SÉLECTEURS DE MODE ──────────────────────────── */
+    .top-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(20, 24, 38, 0.85);
+      backdrop-filter: blur(25px);
+      -webkit-backdrop-filter: blur(25px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 12px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .app-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      background: linear-gradient(135deg, rgba(255, 45, 85, 0.25), rgba(175, 82, 222, 0.25));
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: #ff3b69;
+      text-transform: uppercase;
+    }
+
+    .toolbar-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.92);
+    }
+
+    .mode-pills {
+      display: flex;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 4px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      gap: 4px;
+    }
+
+    .mode-btn {
+      background: transparent;
+      border: none;
+      color: rgba(255, 255, 255, 0.65);
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .mode-btn:hover { color: #fff; }
+    .mode-btn.active {
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .ctrl-button {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #ffffff;
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .ctrl-button:hover { background: rgba(255, 255, 255, 0.2); }
+    .ctrl-button.primary {
+      background: #ffffff;
+      color: #000000;
+      border: none;
+    }
+    .ctrl-button.primary:hover { background: #e5e5e5; }
+
+    /* ─── STAGE PRINCIPAL ────────────────────────────────────────────────── */
+    .main-stage {
+      position: relative;
+      z-index: 10;
+      flex: 1;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      height: calc(100vh - 65px);
+      overflow: hidden;
+    }
+
+    .left-panel {
+      padding: 32px 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(14, 17, 26, 0.35);
+    }
+
+    .artwork-card {
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.1);
+      margin-bottom: 20px;
+    }
+
+    .artwork-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .track-title {
+      font-size: 1.45rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+      color: #fff;
+    }
+
+    .track-artist {
+      font-size: 1rem;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.6);
+      margin-bottom: 18px;
+    }
+
+    .scrubber-slider {
+      width: 100%;
+      height: 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .scrubber-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+
+    .time-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      color: rgba(255, 255, 255, 0.45);
+      margin-top: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .telemetry-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 16px;
+      font-size: 0.8rem;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .telemetry-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(255, 255, 255, 0.5);
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+
+    .telemetry-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .telemetry-label { color: rgba(255, 255, 255, 0.6); }
+    .telemetry-val { font-weight: 700; color: #38ef7d; font-family: monospace; }
+
+    /* ─── CONTENEUR DES PAROLES EXACT SPICY LYRICS ───────────────────────── */
+    .right-panel {
+      position: relative;
+      height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scroll-behavior: smooth;
+      padding: 130px 60px 220px 60px;
+
+      /* ImageMask from Spicy Lyrics main.css */
+      --ImageMask: linear-gradient(
+        180deg,
+        transparent 0,
+        transparent 20px,
+        black 120px,
+        black calc(100% - 120px),
+        transparent calc(100% - 20px),
+        transparent 100%
+      );
+      -webkit-mask-image: var(--ImageMask);
+      mask-image: var(--ImageMask);
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    }
+
+    .right-panel::-webkit-scrollbar { width: 4px; }
+    .right-panel::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
+    }
+
+    /* ─── RÈGLES CSS STRICTES DE SPICY LYRICS 6.1.1 (Mixed.css) ─────────── */
+    .line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      position: relative;
+      cursor: pointer;
+      font-size: var(--DefaultLyricsSize) !important;
+      font-weight: 700 !important;
+      line-height: var(--lyrics-line-height) !important;
+      letter-spacing: 0;
+      margin: 16px 0 !important;
+      padding: 8px 16px !important;
+      transform-origin: left center !important;
+      border-radius: 16px;
+      will-change: transform, opacity, filter, scale;
+
+      /* Transitions physiques de Spicy Lyrics */
+      transition:
+        scale 0.2s cubic-bezier(0.37, 0, 0.63, 1),
+        opacity 0.2s cubic-bezier(0.61, 1, 0.88, 1),
+        filter 0.25s cubic-bezier(0.37, 0, 0.63, 1) !important;
+    }
+
+    /* Hover pill highlight (Mixed.css lines 963-982) */
+    .line:not(.musical-line)::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 0;
+      transform: translateY(-50%) scale(0.92);
+      width: 100%;
+      height: calc(100% + 4px);
+      background-color: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+      opacity: 0;
+      border-radius: 16px;
+      transition: opacity 0.25s ease, scale 0.4s linear(0, 0.013 1%, 0.051 2.2%, 0.404 9.8%, 0.51 12.6%, 0.602 15.5%, 0.683 18.7%, 0.754 22.2%, 0.813 26%, 0.861 30.2%, 0.9 34.8%, 0.931 40%, 0.972 52.7%, 0.992 70.2%, 1);
+      transform-origin: center center;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .line:not(.musical-line):hover::before {
+      opacity: 1;
+      scale: 1.05;
+    }
+
+    /* ─── MOTS ET LETTRES (SYLLABLE / WATER WAVE MODE) ───────────────────── */
+    .word {
+      display: inline-flex;
+      position: relative;
+      background: none !important;
+      background-image: none !important;
+      -webkit-background-clip: unset !important;
+      background-clip: unset !important;
+      border: none !important;
+      box-shadow: none !important;
+      transform-origin: center center;
+      will-change: transform, opacity, scale;
+    }
+
+    .word:not(:last-child)::after {
+      content: "";
+      margin-right: 0.32ch;
+    }
+
+    /* Lettres : le gradient et le clip texte sont appliqués UNIQUEMENT ici ! */
+    .letter {
+      cursor: pointer;
+      font-weight: 700 !important;
+      color: transparent !important;
+      -webkit-text-fill-color: transparent !important;
+      background-clip: text !important;
+      -webkit-background-clip: text !important;
+      position: relative;
+      display: inline-block;
+      transform-origin: center center;
+      will-change: transform, opacity, scale, text-shadow;
+      background: none;
+
+      --gradient-position: -20%;
+      --gradient-color: 255;
+      --gradient-alpha: 0.85;
+      --gradient-alpha-end: 0.35;
+      --gradient-degrees: 90deg;
+      --gradient-offset: 0%;
+      --text-shadow-blur-radius: 4px;
+      --text-shadow-opacity: 0%;
+
+      background-image: linear-gradient(
+        var(--gradient-degrees),
+        rgba(255, 255, 255, var(--gradient-alpha)) var(--gradient-position),
+        rgba(255, 255, 255, var(--gradient-alpha-end)) calc(var(--gradient-position) + 20% + var(--gradient-offset))
+      ) !important;
+      text-shadow: 0 0 var(--text-shadow-blur-radius) rgba(255, 255, 255, var(--text-shadow-opacity));
+    }
+
+    /* ─── LIGNES EN MODE LIGNE (LINE / GRADIENT SWEEP MODE) ──────────────── */
+    .line.line-mode {
+      cursor: pointer;
+      font-weight: 700 !important;
+      color: transparent !important;
+      -webkit-text-fill-color: transparent !important;
+      background-clip: text !important;
+      -webkit-background-clip: text !important;
+      background-image: linear-gradient(
+        var(--gradient-degrees),
+        rgba(255, 255, 255, var(--gradient-alpha)) var(--gradient-position),
+        rgba(255, 255, 255, var(--gradient-alpha-end)) calc(var(--gradient-position) + 20% + var(--gradient-offset))
+      ) !important;
+      text-shadow: 0 0 var(--text-shadow-blur-radius) rgba(255, 255, 255, var(--text-shadow-opacity));
+    }
+
+    /* ÉTAT : ACTIVE */
+    .line.Active {
+      opacity: var(--Vocal-Active-opacity, 1) !important;
+      scale: 1.05;
+      --BlurAmount: 0px !important;
+      filter: blur(0px) !important;
+    }
+
+    /* En mode Syllabe, .line et .word n'ont aucun fond pour ne jamais créer de boîte */
+    .line:not(.line-mode),
+    .line .word {
+      background: none !important;
+      background-image: none !important;
+      -webkit-background-clip: unset !important;
+      background-clip: unset !important;
+    }
+
+    /* ÉTAT : NOT SUNG (À venir) */
+    .line.NotSung {
+      opacity: var(--Vocal-NotSung-opacity, 0.51);
+      scale: var(--DefaultLyricsScale, 0.95);
+      filter: blur(var(--BlurAmount, 0px));
+      --gradient-position: -20% !important;
+      --text-shadow-blur-radius: 4px !important;
+      --text-shadow-opacity: 0% !important;
+    }
+
+    .line.NotSung .letter {
+      --gradient-position: -20% !important;
+      --text-shadow-blur-radius: 4px !important;
+      --text-shadow-opacity: 0% !important;
+    }
+
+    /* ÉTAT : SUNG (Passé) */
+    .line.Sung {
+      opacity: var(--Vocal-Sung-opacity, 0.497);
+      scale: var(--DefaultLyricsScale, 0.95);
+      filter: blur(var(--BlurAmount, 0px));
+      --gradient-position: 100% !important;
+      --text-shadow-blur-radius: 4px !important;
+      --text-shadow-opacity: 0% !important;
+    }
+
+    .line.Sung .letter {
+      --gradient-position: 100% !important;
+      --text-shadow-blur-radius: 4px !important;
+      --text-shadow-opacity: 0% !important;
+    }
+
+    /* SURVOL (HOVER) */
+    .line:hover,
+    .line:hover .letter {
+      opacity: var(--Vocal-Hover-opacity, 1) !important;
+      filter: blur(0px) !important;
+      --BlurAmount: 0px !important;
+    }
+
+    /* ─── INTERMÈDES MUSICAUX STRICTS (DotLine / dotGroup / dot) ─────────── */
+    .line.musical-line {
+      transition: transform 0.14s, opacity 0.14s !important;
+      position: relative;
+      transform-origin: center center !important;
+      z-index: 1;
+      opacity: 0;
+      height: 0 !important;
+      line-height: 0 !important;
+      overflow: hidden !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+
+    .line.musical-line.Active {
+      opacity: 1;
+      overflow: visible !important;
+      height: auto !important;
+      line-height: var(--lyrics-line-height) !important;
+      margin: 16px 0 !important;
+    }
+
+    .line.musical-line .dotGroup {
+      --dot-gap: clamp(0.005rem, 1.7cqw, 0.18rem);
+      display: flex;
+      flex-direction: row;
+      gap: 12px;
+      transform-origin: center center;
+      transition: scale 0.3s !important;
+      scale: 1;
+    }
+
+    /* Exact overshoot vanishing transition of Spicy Lyrics Mixed.css line 684 */
+    .line.musical-line:is(.pre-hidden, :not(.Active)) .dotGroup {
+      transition: scale 0.4s linear(0, -0.006 9.4%, -0.029 18%, -0.157 43.3%, -0.185 51.4%, -0.189 55.9%, -0.182 60%, -0.163 63.9%, -0.133 67.6%, -0.074 72.3%, 0.006 76.7%, 0.238 85%, 0.566 92.7%, 1) !important;
+      scale: 0 !important;
+    }
+
+    .line.musical-line .dotGroup .dot {
+      --font-size: calc(var(--DefaultLyricsSize) * 1.3);
+      --opacity-size: 0.35;
+      font-size: var(--font-size) !important;
+      opacity: var(--opacity-size);
+      scale: 0.75;
+      line-height: 0.65;
+      will-change: transform, opacity, scale, text-shadow;
+      display: inline-block;
+      color: #ffffff;
+      -webkit-text-fill-color: #ffffff;
+    }
+
+    @media (max-width: 900px) {
+      .main-stage { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; }
+      .left-panel { border-right: none; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding: 20px; flex-direction: row; align-items: center; gap: 20px; }
+      .artwork-card { width: 90px; margin-bottom: 0; }
+      .telemetry-card { display: none; }
+      .right-panel { padding: 40px 24px 140px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Fond dynamique de vagues de lumière -->
+  <div class="ambient-bg">
+    <div class="ambient-blob blob-1"></div>
+    <div class="ambient-blob blob-2"></div>
+    <div class="ambient-blob blob-3"></div>
+  </div>
+  <div class="bg-overlay"></div>
+
+  <!-- Barre d'outils -->
+  <header class="top-toolbar">
+    <div class="toolbar-left">
+      <span class="app-badge">Moteur Spicy Lyrics 6.1.1</span>
+      <span class="toolbar-title">Simulateur Strict des Animations</span>
+    </div>
+
+    <div class="mode-pills">
+      <button class="mode-btn active" id="btnModeSyllable" onclick="setLyricsMode('Syllable')">🌊 Mode Syllabe (Vague & Ressorts)</button>
+      <button class="mode-btn" id="btnModeLine" onclick="setLyricsMode('Line')">✨ Mode Ligne (Balayage Progressif)</button>
+      <button class="mode-btn" id="btnModeDots" onclick="setLyricsMode('Dots')">🎵 Intermède (3 Points & Disparition)</button>
+    </div>
+
+    <div class="toolbar-actions">
+      <button class="ctrl-button" id="btnNextSong" onclick="nextSong()">⏭ Changer de Musique (1 sur 2)</button>
+      <button class="ctrl-button" id="btnToggleBlur" onclick="toggleBlur()">Flou DOF: ON</button>
+      <button class="ctrl-button primary" id="btnPlayPause" onclick="togglePlay()">⏸ Pause</button>
+    </div>
+  </header>
+
+  <!-- Scène principale -->
+  <main class="main-stage">
+    
+    <!-- Panneau gauche : Track info & télémétrie des ressorts -->
+    <aside class="left-panel">
+      <div>
+        <div class="artwork-card">
+          <img id="coverImg" src="https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop" alt="Album Cover">
+        </div>
+        <h1 class="track-title" id="trackTitle">Starboy</h1>
+        <h2 class="track-artist" id="trackArtist">The Weeknd, Daft Punk</h2>
+
+        <div class="scrubber-box">
+          <input type="range" id="progressBar" class="scrubber-slider" min="0" max="23" step="0.02" value="0" oninput="onSeek(this.value)">
+          <div class="time-labels">
+            <span id="currentTimeLabel">0:00</span>
+            <span id="totalTimeLabel">0:23</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Télémétrie mathématique en temps réel extraite de la simulation -->
+      <div class="telemetry-card">
+        <div class="telemetry-title">Télémétrie Moteur Physique (Spring)</div>
+        <div class="telemetry-row">
+          <span class="telemetry-label">Mode de rendu</span>
+          <span class="telemetry-val" id="telMode">SYLLABLE (WATER WAVE)</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-label">Élément Actif</span>
+          <span class="telemetry-val" id="telElement">—</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-label">Atténuation Vague (Falloff)</span>
+          <span class="telemetry-val" id="telFalloff">0.000</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-label">Échelle Ressort (Scale)</span>
+          <span class="telemetry-val" id="telScale">1.000</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-label">Rebond Vertical (YOffset)</span>
+          <span class="telemetry-val" id="telYOffset">0.000</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-label">Lueur Ressort (Glow)</span>
+          <span class="telemetry-val" id="telGlow">0.000</span>
+        </div>
+        <div class="telemetry-row">
+          <span class="telemetry-label">Gradient Sweep Position</span>
+          <span class="telemetry-val" id="telGradPos">-20.0%</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Panneau droit : Les paroles rendues par le moteur -->
+    <section class="right-panel" id="lyricsContainer"></section>
+
+  </main>
+
+  <script>
+    /*
+     * ========================================================================
+     * PORT EXACT DU MOTEUR PHYSIQUE DE SPICY LYRICS 6.1.1
+     * (Spring oscillator, Cubic splines, Proximity falloff, EaseSinOut)
+     * ========================================================================
+     */
+
+    // 1. Classe Spring exacte de Spicy Lyrics (port Fraktality spr)
+    class Spring {
+      constructor(startPosition, frequency, dampingRatio, goal) {
+        this.d = dampingRatio;
+        this.f = frequency;
+        this.g = goal !== undefined ? goal : startPosition;
+        this.p = startPosition;
+        this.v = 0;
+      }
+      SetGoal(g, snap = false) {
+        this.g = g;
+        if (snap) {
+          this.p = g;
+          this.v = 0;
+        }
+      }
+      Step(dt) {
+        dt = Math.min(dt, 0.05); // évite les décrochages si la fenêtre perd le focus
+        const d = this.d;
+        const f = this.f * (2 * Math.PI);
+        const g = this.g;
+        let p = this.p;
+        let v = this.v;
+
+        if (d === 1) {
+          const q = Math.exp(-f * dt);
+          const w = dt * q;
+          const c0 = q + w * f;
+          const c2 = q - w * f;
+          const c3 = w * f * f;
+          const o = p - g;
+          p = o * c0 + v * w + g;
+          v = v * c2 - o * c3;
+        } else if (d < 1) {
+          const q = Math.exp(-d * f * dt);
+          const c = Math.sqrt(1 - d * d);
+          const i = Math.cos(dt * f * c);
+          const j = Math.sin(dt * f * c);
+          const z = c > 1e-5 ? (j / c) : dt * f;
+          const y = (f * c > 1e-5) ? (j / (f * c)) : dt;
+          const o = p - g;
+          p = (o * (i + z * d) + v * y) * q + g;
+          v = (v * (i - z * d) - o * (z * f)) * q;
+        } else {
+          const c = Math.sqrt(d * d - 1);
+          const r1 = -f * (d + c);
+          const r2 = -f * (d - c);
+          const ec1 = Math.exp(r1 * dt);
+          const ec2 = Math.exp(r2 * dt);
+          const o = p - g;
+          const co2 = (v - o * r1) / (2 * f * c);
+          const co1 = ec1 * (o - co2);
+          p = co1 + co2 * ec2 + g;
+          v = co1 * r1 + co2 * ec2 * r2;
+        }
+        this.p = p;
+        this.v = v;
+        return p;
+      }
+    }
+
+    // 2. Interpolation par Spline Cubique naturelle (conforme à 'cubic-spline' npm)
+    class CubicSpline {
+      constructor(points) {
+        this.xs = points.map(p => p.Time);
+        this.ys = points.map(p => p.Value);
+        const n = this.xs.length;
+        this.ks = new Float64Array(n);
+        const A = Array.from({ length: n }, () => new Float64Array(n));
+        const b = new Float64Array(n);
+        A[0][0] = 1;
+        A[n - 1][n - 1] = 1;
+        for (let i = 1; i < n - 1; i++) {
+          const h0 = this.xs[i] - this.xs[i - 1];
+          const h1 = this.xs[i + 1] - this.xs[i];
+          A[i][i - 1] = h0;
+          A[i][i] = 2 * (h0 + h1);
+          A[i][i + 1] = h1;
+          b[i] = 3 * ((this.ys[i + 1] - this.ys[i]) / h1 - (this.ys[i] - this.ys[i - 1]) / h0);
+        }
+        for (let i = 1; i < n; i++) {
+          const m = A[i][i - 1] / A[i - 1][i - 1];
+          A[i][i] -= m * A[i - 1][i];
+          b[i] -= m * b[i - 1];
+        }
+        this.ks[n - 1] = b[n - 1] / A[n - 1][n - 1];
+        for (let i = n - 2; i >= 0; i--) {
+          this.ks[i] = (b[i] - A[i][i + 1] * this.ks[i + 1]) / A[i][i];
+        }
+      }
+      at(x) {
+        const n = this.xs.length;
+        if (x <= this.xs[0]) return this.ys[0];
+        if (x >= this.xs[n - 1]) return this.ys[n - 1];
+        let i = 0;
+        while (i < n - 1 && this.xs[i + 1] < x) i++;
+        const h = this.xs[i + 1] - this.xs[i];
+        const t = (x - this.xs[i]) / h;
+        const a = this.ks[i] * h - (this.ys[i + 1] - this.ys[i]);
+        const b = -this.ks[i + 1] * h + (this.ys[i + 1] - this.ys[i]);
+        return (1 - t) * this.ys[i] + t * this.ys[i + 1] + t * (1 - t) * (a * (1 - t) + b * t);
+      }
+    }
+
+    // 3. Constantes exactes de Spicy Lyrics (LyricsAnimator.ts)
+    const LetterScaleRange = [
+      { Time: 0, Value: 0.95 },
+      { Time: 0.7, Value: 1.175 },
+      { Time: 1, Value: 1.0 },
+    ];
+    const LetterYOffsetRange = [
+      { Time: 0, Value: 1 / 100 },
+      { Time: 0.9, Value: -(1 / 56) },
+      { Time: 1, Value: 0.0 },
+    ];
+    const GlowRange = [
+      { Time: 0, Value: 0.0 },
+      { Time: 0.15, Value: 1.0 },
+      { Time: 0.6, Value: 1.0 },
+      { Time: 1, Value: 0.0 },
+    ];
+
+    const DotAnimations = {
+      YOffsetDamping: 0.4,
+      YOffsetFrequency: 1.25,
+      ScaleDamping: 0.6,
+      ScaleFrequency: 0.7,
+      GlowDamping: 0.5,
+      GlowFrequency: 1.0,
+      OpacityDamping: 0.5,
+      OpacityFrequency: 1.0,
+
+      ScaleRange: [
+        { Time: 0, Value: 0.75 },
+        { Time: 0.7, Value: 1.05 },
+        { Time: 1, Value: 1.0 },
+      ],
+      YOffsetRange: [
+        { Time: 0, Value: 0.0 },
+        { Time: 0.9, Value: -0.12 },
+        { Time: 1, Value: 0.0 },
+      ],
+      GlowRange: [
+        { Time: 0, Value: 0.0 },
+        { Time: 0.6, Value: 1.0 },
+        { Time: 1, Value: 1.0 },
+      ],
+      OpacityRange: [
+        { Time: 0, Value: 0.35 },
+        { Time: 0.6, Value: 1.0 },
+        { Time: 1, Value: 1.0 },
+      ]
+    };
+
+    const LineGlowRange = [
+      { Time: 0, Value: 0.0 },
+      { Time: 0.5, Value: 1.0 },
+      { Time: 1, Value: 0.0 },
+    ];
+
+    const LetterScaleSpline = new CubicSpline(LetterScaleRange);
+    const LetterYOffsetSpline = new CubicSpline(LetterYOffsetRange);
+    const GlowSpline = new CubicSpline(GlowRange);
+
+    const DotScaleSpline = new CubicSpline(DotAnimations.ScaleRange);
+    const DotYOffsetSpline = new CubicSpline(DotAnimations.YOffsetRange);
+    const DotGlowSpline = new CubicSpline(DotAnimations.GlowRange);
+    const DotOpacitySpline = new CubicSpline(DotAnimations.OpacityRange);
+
+    const LineGlowSpline = new CubicSpline(LineGlowRange);
+
+    // Paramètres ressort lettres
+    const ScaleFrequency = 0.88;
+    const ScaleDamping = 0.64;
+    const YOffsetFrequency = 1.45;
+    const YOffsetDamping = 0.4;
+    const GlowFrequency = 1.18;
+    const GlowDamping = 0.56;
+    const LetterGlowMultiplier_Opacity = 185;
+    const preHiddenDotLineMs = 0.45; // 450ms avant la fin
+
+    function easeSinOut(x) {
+      return Math.sin((x * Math.PI) / 2);
+    }
+
+    /*
+     * ─── STRUCTURE MULTI-TITRES POUR TEST DE CHANGEMENT DE PAROLES (1 SUR 2) ───
+     */
+    const ALL_TRACKS = [
+      {
+        Title: "Starboy",
+        Artist: "The Weeknd, Daft Punk",
+        Cover: "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=600&auto=format&fit=crop",
+        Duration: 19.5,
+        Colors: ['#ff2d55', '#af52de', '#007aff'],
+        Lyrics: [
+          {
+            StartTime: 0.0,
+            EndTime: 3.8,
+            Words: [
+              { Text: "I'm", Start: 0.0, End: 0.45 },
+              { Text: "tryna", Start: 0.45, End: 0.95 },
+              { Text: "put", Start: 0.95, End: 1.35 },
+              { Text: "you", Start: 1.35, End: 1.70 },
+              { Text: "in", Start: 1.70, End: 1.95 },
+              { Text: "the", Start: 1.95, End: 2.20 },
+              { Text: "worst", Start: 2.20, End: 2.80 },
+              { Text: "mood,", Start: 2.80, End: 3.35 },
+              { Text: "ah", Start: 3.35, End: 3.80 }
+            ]
+          },
+          {
+            StartTime: 3.8,
+            EndTime: 7.2,
+            Words: [
+              { Text: "P1", Start: 3.8, End: 4.4 },
+              { Text: "cleaner", Start: 4.4, End: 4.95 },
+              { Text: "than", Start: 4.95, End: 5.30 },
+              { Text: "your", Start: 5.30, End: 5.60 },
+              { Text: "church", Start: 5.60, End: 6.20 },
+              { Text: "shoes,", Start: 6.20, End: 6.75 },
+              { Text: "ah", Start: 6.75, End: 7.20 }
+            ]
+          },
+          {
+            StartTime: 7.2,
+            EndTime: 10.6,
+            Words: [
+              { Text: "Milli", Start: 7.2, End: 7.8 },
+              { Text: "point", Start: 7.8, End: 8.35 },
+              { Text: "two", Start: 8.35, End: 8.75 },
+              { Text: "just", Start: 8.75, End: 9.15 },
+              { Text: "to", Start: 9.15, End: 9.45 },
+              { Text: "hurt", Start: 9.45, End: 9.95 },
+              { Text: "you,", Start: 9.95, End: 10.3 },
+              { Text: "ah", Start: 10.3, End: 10.6 }
+            ]
+          },
+          {
+            StartTime: 10.6,
+            EndTime: 15.0,
+            DotLine: true, // Intermède instrumental strict avec 3 points
+            Dots: [
+              { Start: 10.6, End: 12.06 },
+              { Start: 12.06, End: 13.53 },
+              { Start: 13.53, End: 15.0 }
+            ]
+          },
+          {
+            StartTime: 15.0,
+            EndTime: 19.5,
+            Words: [
+              { Text: "Look", Start: 15.0, End: 15.45 },
+              { Text: "what", Start: 15.45, End: 15.80 },
+              { Text: "you've", Start: 15.80, End: 16.20 },
+              { Text: "done,", Start: 16.20, End: 16.70 },
+              { Text: "I'm", Start: 16.70, End: 17.05 },
+              { Text: "a", Start: 17.05, End: 17.25 },
+              { Text: "motherfuckin'", Start: 17.25, End: 18.40 },
+              { Text: "starboy", Start: 18.40, End: 19.50 }
+            ]
+          }
+        ]
+      },
+      {
+        Title: "Blinding Lights",
+        Artist: "The Weeknd",
+        Cover: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&auto=format&fit=crop",
+        Duration: 18.0,
+        Colors: ['#ff9500', '#ff2d55', '#5856d6'],
+        Lyrics: [
+          {
+            StartTime: 0.0,
+            EndTime: 4.2,
+            Words: [
+              { Text: "I've", Start: 0.0, End: 0.5 },
+              { Text: "been", Start: 0.5, End: 0.9 },
+              { Text: "tryna", Start: 0.9, End: 1.5 },
+              { Text: "call", Start: 1.5, End: 2.2 },
+              { Text: "for", Start: 2.2, End: 2.6 },
+              { Text: "a", Start: 2.6, End: 2.8 },
+              { Text: "long", Start: 2.8, End: 3.4 },
+              { Text: "time", Start: 3.4, End: 4.2 }
+            ]
+          },
+          {
+            StartTime: 4.2,
+            EndTime: 8.5,
+            Words: [
+              { Text: "I've", Start: 4.2, End: 4.7 },
+              { Text: "been", Start: 4.7, End: 5.1 },
+              { Text: "on", Start: 5.1, End: 5.5 },
+              { Text: "my", Start: 5.5, End: 5.9 },
+              { Text: "own", Start: 5.9, End: 6.6 },
+              { Text: "for", Start: 6.6, End: 7.0 },
+              { Text: "long", Start: 7.0, End: 7.6 },
+              { Text: "enough", Start: 7.6, End: 8.5 }
+            ]
+          },
+          {
+            StartTime: 8.5,
+            EndTime: 12.0,
+            DotLine: true,
+            Dots: [
+              { Start: 8.5, End: 9.66 },
+              { Start: 9.66, End: 10.83 },
+              { Start: 10.83, End: 12.0 }
+            ]
+          },
+          {
+            StartTime: 12.0,
+            EndTime: 18.0,
+            Words: [
+              { Text: "I", Start: 12.0, End: 12.5 },
+              { Text: "said,", Start: 12.5, End: 13.1 },
+              { Text: "ooh,", Start: 13.1, End: 14.2 },
+              { Text: "I'm", Start: 14.2, End: 14.7 },
+              { Text: "blinded", Start: 14.7, End: 15.8 },
+              { Text: "by", Start: 15.8, End: 16.2 },
+              { Text: "the", Start: 16.2, End: 16.6 },
+              { Text: "lights", Start: 16.6, End: 18.0 }
+            ]
+          }
+        ]
+      }
+    ];
+
+    let currentTrackIdx = 0;
+    let SONG_DATA = ALL_TRACKS[0].Lyrics;
+    let currentLyricsType = 'Syllable'; // 'Syllable' | 'Line'
+    let isPlaying = true;
+    let enableBlur = true;
+    let currentTime = 0;
+    let totalDuration = ALL_TRACKS[0].Duration;
+    let lastTime = performance.now();
+    let activeLineIndex = -1;
+
+    const lyricsContainer = document.getElementById('lyricsContainer');
+    const progressBar = document.getElementById('progressBar');
+    const currentTimeLabel = document.getElementById('currentTimeLabel');
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const btnToggleBlur = document.getElementById('btnToggleBlur');
+
+    // Télémétrie
+    const telMode = document.getElementById('telMode');
+    const telElement = document.getElementById('telElement');
+    const telFalloff = document.getElementById('telFalloff');
+    const telScale = document.getElementById('telScale');
+    const telYOffset = document.getElementById('telYOffset');
+    const telGlow = document.getElementById('telGlow');
+    const telGradPos = document.getElementById('telGradPos');
+
+    function loadTrack(idx) {
+      currentTrackIdx = idx % ALL_TRACKS.length;
+      const track = ALL_TRACKS[currentTrackIdx];
+      SONG_DATA = track.Lyrics;
+      totalDuration = track.Duration;
+      currentTime = 0;
+      activeLineIndex = -1;
+
+      // ─── ALTERNANCE AUTOMATIQUE 1 MUSIQUE SUR 2 ─────────────────────────
+      // Musique 1 (index 0) = Vague (Syllable)
+      // Musique 2 (index 1) = Ligne (Line Balayage)
+      // Musique 3 (index 2) = Vague, etc. à l'infini
+      currentLyricsType = (currentTrackIdx % 2 === 0) ? 'Syllable' : 'Line';
+      document.querySelectorAll('.mode-pills .mode-btn').forEach(b => b.classList.remove('active'));
+      if (currentLyricsType === 'Syllable') {
+        document.getElementById('btnModeSyllable')?.classList.add('active');
+        telMode.textContent = 'SYLLABLE (WATER WAVE)';
+      } else {
+        document.getElementById('btnModeLine')?.classList.add('active');
+        telMode.textContent = 'LINE (GRADIENT SWEEP)';
+      }
+
+      document.getElementById('coverImg').src = track.Cover;
+      document.getElementById('trackTitle').textContent = track.Title;
+      document.getElementById('trackArtist').textContent = track.Artist;
+      document.getElementById('totalTimeLabel').textContent = formatTime(track.Duration);
+      progressBar.max = track.Duration;
+      progressBar.value = 0;
+
+      if (track.Colors) {
+        document.querySelector('.blob-1').style.background = `radial-gradient(circle, ${track.Colors[0]} 0%, ${track.Colors[1]} 70%, transparent 100%)`;
+        document.querySelector('.blob-2').style.background = `radial-gradient(circle, ${track.Colors[1]} 0%, ${track.Colors[2]} 70%, transparent 100%)`;
+      }
+
+      const currentModeLabel = (currentLyricsType === 'Syllable') ? '🌊 Vague' : '✨ Ligne';
+      document.getElementById('btnNextSong').textContent = `⏭ Piste ${currentTrackIdx + 1}/${ALL_TRACKS.length} : ${currentModeLabel}`;
+      buildLyricsDOM();
+    }
+
+    function nextSong() {
+      loadTrack(currentTrackIdx + 1);
+    }
+
+    // Construction du DOM avec les instances de Springs individuelles
+    function buildLyricsDOM() {
+      lyricsContainer.innerHTML = '';
+      const isLineMode = (currentLyricsType === 'Line');
+
+      SONG_DATA.forEach((lineData, lineIdx) => {
+        const lineEl = document.createElement('div');
+        lineEl.className = 'line NotSung' + (lineData.DotLine ? ' musical-line' : '') + (isLineMode && !lineData.DotLine ? ' line-mode' : '');
+        lineData.HTMLElement = lineEl;
+
+        if (lineData.DotLine) {
+          const dotGroup = document.createElement('div');
+          dotGroup.className = 'dotGroup';
+          lineData.dotGroupEl = dotGroup;
+
+          lineData.Dots.forEach((dotData) => {
+            const dotEl = document.createElement('span');
+            dotEl.className = 'dot';
+            dotEl.textContent = '•';
+            dotData.HTMLElement = dotEl;
+            dotData.AnimatorStore = {
+              Scale: new Spring(DotScaleSpline.at(0), DotAnimations.ScaleFrequency, DotAnimations.ScaleDamping),
+              YOffset: new Spring(DotYOffsetSpline.at(0), DotAnimations.YOffsetFrequency, DotAnimations.YOffsetDamping),
+              Glow: new Spring(DotGlowSpline.at(0), DotAnimations.GlowFrequency, DotAnimations.GlowDamping),
+              Opacity: new Spring(DotOpacitySpline.at(0), DotAnimations.OpacityFrequency, DotAnimations.OpacityDamping)
+            };
+            dotGroup.appendChild(dotEl);
+          });
+
+          lineEl.appendChild(dotGroup);
+        } else if (isLineMode) {
+          // MODE LIGNE PUR (Exact Spicy Lyrics Line.ts):
+          // Le texte est directement dans le conteneur de ligne pour un balayage lumineux continu sans boîte
+          lineEl.textContent = lineData.Words ? lineData.Words.map(w => w.Text).join(' ') : '';
+          lineData.AnimatorStore = {
+            Glow: new Spring(LineGlowSpline.at(0), 1.0, 0.5)
+          };
+        } else {
+          // MODE SYLLABE PUR (Exact Spicy Lyrics Syllable.ts & Emphasize.ts):
+          // Chaque mot contient ses lettres individuelles avec ressorts physiques Fraktality
+          lineData.AnimatorStore = {
+            Glow: new Spring(LineGlowSpline.at(0), 1.0, 0.5)
+          };
+
+          lineData.Words.forEach((wordData) => {
+            const wordEl = document.createElement('span');
+            wordEl.className = 'word';
+            wordData.HTMLElement = wordEl;
+
+            wordData.Letters = [];
+            const chars = wordData.Text.split('');
+            const wordDuration = wordData.End - wordData.Start;
+            const letterDuration = wordDuration / chars.length;
+
+            chars.forEach((ch, chIdx) => {
+              const letterEl = document.createElement('span');
+              letterEl.className = 'letter';
+              letterEl.textContent = ch;
+
+              const letterStart = wordData.Start + chIdx * letterDuration;
+              const letterEnd = letterStart + letterDuration;
+
+              const letterData = {
+                Char: ch,
+                StartTime: letterStart,
+                EndTime: letterEnd,
+                HTMLElement: letterEl,
+                AnimatorStore: {
+                  Scale: new Spring(LetterScaleSpline.at(0), ScaleFrequency, ScaleDamping),
+                  YOffset: new Spring(LetterYOffsetSpline.at(0), YOffsetFrequency, YOffsetDamping),
+                  Glow: new Spring(GlowSpline.at(0), GlowFrequency, GlowDamping)
+                }
+              };
+
+              wordData.Letters.push(letterData);
+              wordEl.appendChild(letterEl);
+            });
+
+            lineEl.appendChild(wordEl);
+          });
+        }
+
+        lineEl.addEventListener('click', () => {
+          currentTime = lineData.StartTime;
+          progressBar.value = currentTime;
+        });
+
+        lyricsContainer.appendChild(lineEl);
+      });
+    }
+
+    function setLyricsMode(mode) {
+      if (mode === 'Dots') {
+        currentLyricsType = 'Syllable';
+        currentTime = (currentTrackIdx === 0) ? 10.6 : 8.5; // Saut direct à l'intermède
+        progressBar.value = currentTime;
+        document.querySelectorAll('.mode-pills .mode-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('btnModeDots').classList.add('active');
+        telMode.textContent = 'INTERMÈDE INSTRUMENTAL (3 POINTS)';
+        buildLyricsDOM();
+        return;
+      }
+
+      currentLyricsType = mode;
+      document.querySelectorAll('.mode-pills .mode-btn').forEach(b => b.classList.remove('active'));
+      if (mode === 'Syllable') {
+        document.getElementById('btnModeSyllable').classList.add('active');
+        telMode.textContent = 'SYLLABLE (WATER WAVE)';
+      } else {
+        document.getElementById('btnModeLine').classList.add('active');
+        telMode.textContent = 'LINE (GRADIENT SWEEP)';
+      }
+      buildLyricsDOM();
+    }
+
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      btnPlayPause.textContent = isPlaying ? '⏸ Pause' : '▶ Lecture';
+    }
+
+    function toggleBlur() {
+      enableBlur = !enableBlur;
+      btnToggleBlur.textContent = `Flou DOF: ${enableBlur ? 'ON' : 'OFF'}`;
+      if (!enableBlur) {
+        SONG_DATA.forEach(line => line.HTMLElement.style.setProperty('--BlurAmount', '0px'));
+      }
+    }
+
+    function onSeek(val) {
+      currentTime = parseFloat(val);
+    }
+
+    function formatTime(s) {
+      const mins = Math.floor(s / 60);
+      const secs = Math.floor(s % 60);
+      return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    }
+
+    function getElementState(t, start, end) {
+      if (t < start) return "NotSung";
+      if (t >= end) return "Sung";
+      return "Active";
+    }
+
+    function getProgressPercentage(t, start, end) {
+      if (t <= start) return 0;
+      if (t >= end) return 1;
+      return (t - start) / (end - start);
+    }
+
+    /*
+     * ─── BOUCLE 60/120 FPS : IMPLÉMENTATION STRICTE DE LYRICSANIMATOR.TS ───
+     */
+    function animateFrame(timestamp) {
+      const dt = (timestamp - lastTime) / 1000;
+      lastTime = timestamp;
+
+      if (isPlaying) {
+        currentTime += dt;
+        if (currentTime >= totalDuration) {
+          nextSong();
+          return;
+        }
+        progressBar.value = currentTime;
+      }
+
+      currentTimeLabel.textContent = formatTime(currentTime);
+
+      // Trouver la ligne active
+      let foundLine = -1;
+      for (let i = 0; i < SONG_DATA.length; i++) {
+        if (currentTime >= SONG_DATA[i].StartTime && currentTime < SONG_DATA[i].EndTime) {
+          foundLine = i;
+          break;
+        }
+      }
+
+      // Gestion du flou de profondeur et des classes d'état de ligne
+      if (foundLine !== activeLineIndex) {
+        activeLineIndex = foundLine;
+
+        SONG_DATA.forEach((line, idx) => {
+          const isAct = (idx === activeLineIndex);
+          const isPast = (idx < activeLineIndex);
+          const isNot = (idx > activeLineIndex);
+
+          line.HTMLElement.classList.toggle('Active', isAct);
+          line.HTMLElement.classList.toggle('Sung', isPast);
+          line.HTMLElement.classList.toggle('NotSung', isNot);
+
+          // Formule exacte du flou de distance de Spicy Lyrics (applyBlur)
+          if (enableBlur) {
+            const distance = Math.abs(idx - activeLineIndex);
+            const blur = (isAct || distance === 0) ? '0px' : `${Math.min(distance * 2.5, 12).toFixed(1)}px`;
+            line.HTMLElement.style.setProperty('--BlurAmount', blur);
+          } else {
+            line.HTMLElement.style.setProperty('--BlurAmount', '0px');
+          }
+
+          if (currentLyricsType === 'Line' && !line.DotLine) {
+            if (isPast) {
+              line.HTMLElement.style.setProperty('--gradient-position', '100%');
+            } else if (isNot) {
+              line.HTMLElement.style.setProperty('--gradient-position', '-20%');
+            }
+          }
+        });
+
+        // ScrollIntoView fluide centré
+        if (activeLineIndex >= 0 && SONG_DATA[activeLineIndex].HTMLElement) {
+          SONG_DATA[activeLineIndex].HTMLElement.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }
+
+      // ======================================================================
+      // 1. ANIMATION DES POINTS (DotLine) LORSQU'IL Y A UN DÉLAI INSTRUMENTAL
+      // ======================================================================
+      SONG_DATA.forEach((line) => {
+        if (!line.DotLine) return;
+
+        const lineState = getElementState(currentTime, line.StartTime, line.EndTime);
+        
+        // Disparition anticipée pré-hidden (LyricsAnimator.ts ligne 690-698)
+        if (currentTime > line.EndTime - preHiddenDotLineMs) {
+          line.HTMLElement.classList.add('pre-hidden');
+        } else {
+          line.HTMLElement.classList.remove('pre-hidden');
+        }
+
+        line.Dots.forEach((dot) => {
+          const dotState = getElementState(currentTime, dot.Start, dot.End);
+          const dotPercent = getProgressPercentage(currentTime, dot.Start, dot.End);
+
+          let targetScale, targetYOffset, targetGlow, targetOpacity;
+
+          if (dotState === "Active") {
+            targetScale = DotScaleSpline.at(dotPercent);
+            targetYOffset = DotYOffsetSpline.at(dotPercent);
+            targetGlow = DotGlowSpline.at(dotPercent);
+            targetOpacity = DotOpacitySpline.at(dotPercent);
+
+            telElement.textContent = `Point (Intermède)`;
+            telScale.textContent = targetScale.toFixed(3);
+            telYOffset.textContent = `${(targetYOffset * 40).toFixed(2)} px`;
+            telGlow.textContent = targetGlow.toFixed(3);
+            telFalloff.textContent = '1.000';
+            telGradPos.textContent = '100%';
+          } else if (dotState === "NotSung") {
+            targetScale = DotScaleSpline.at(0);
+            targetYOffset = DotYOffsetSpline.at(0);
+            targetGlow = DotGlowSpline.at(0);
+            targetOpacity = DotOpacitySpline.at(0);
+          } else {
+            targetScale = DotScaleSpline.at(1);
+            targetYOffset = DotYOffsetSpline.at(1);
+            targetGlow = DotGlowSpline.at(1);
+            targetOpacity = DotOpacitySpline.at(1);
+          }
+
+          dot.AnimatorStore.Scale.SetGoal(targetScale);
+          dot.AnimatorStore.YOffset.SetGoal(targetYOffset);
+          dot.AnimatorStore.Glow.SetGoal(targetGlow);
+          dot.AnimatorStore.Opacity.SetGoal(targetOpacity);
+
+          const curScale = dot.AnimatorStore.Scale.Step(dt);
+          const curYOffset = dot.AnimatorStore.YOffset.Step(dt);
+          const curGlow = dot.AnimatorStore.Glow.Step(dt);
+          const curOpacity = dot.AnimatorStore.Opacity.Step(dt);
+
+          dot.HTMLElement.style.transform = `translate3d(0, calc(var(--DefaultLyricsSize) * ${curYOffset}), 0)`;
+          dot.HTMLElement.style.scale = `${curScale}`;
+          dot.HTMLElement.style.opacity = `${curOpacity}`;
+          dot.HTMLElement.style.setProperty('--text-shadow-blur-radius', `${4 + 6 * curGlow}px`);
+          dot.HTMLElement.style.setProperty('--text-shadow-opacity', `${curGlow * 90}%`);
+        });
+      });
+
+      // ======================================================================
+      // 2. RENDU SELON LE MODE CHOISI : SYLLABLE (WATER WAVE) OU LINE (GRADIENT)
+      // ======================================================================
+      if (activeLineIndex >= 0 && !SONG_DATA[activeLineIndex].DotLine) {
+        const activeLine = SONG_DATA[activeLineIndex];
+        const linePercent = getProgressPercentage(currentTime, activeLine.StartTime, activeLine.EndTime);
+
+        // ─── MODE 1 : VAGUE WATER & PHYSIQUE PAR LETTRE (Syllable Mode) ─────
+        if (currentLyricsType === 'Syllable') {
+          // Désactive le gradient global de ligne pour laisser chaque lettre s'animer individuellement
+          activeLine.HTMLElement.style.removeProperty('--gradient-position');
+
+          let foundActiveLetterChar = '—';
+          let maxFalloffSeen = 0;
+          let maxScaleSeen = 1;
+          let maxYOffsetSeen = 0;
+          let maxGlowSeen = 0;
+          let activeGradPosSeen = -20;
+
+          activeLine.Words.forEach((word) => {
+            const wordState = getElementState(currentTime, word.Start, word.End);
+
+            if (wordState === "Active") {
+              // 1. Trouver l'index de la lettre active dans le mot
+              let activeLetterIdx = -1;
+              let activeLetterPercent = 0;
+
+              for (let i = 0; i < word.Letters.length; i++) {
+                if (getElementState(currentTime, word.Letters[i].StartTime, word.Letters[i].EndTime) === "Active") {
+                  activeLetterIdx = i;
+                  activeLetterPercent = getProgressPercentage(currentTime, word.Letters[i].StartTime, word.Letters[i].EndTime);
+                  foundActiveLetterChar = word.Letters[i].Char;
+                  break;
+                }
+              }
+
+              // 2. Base d'animation sur la lettre active
+              const baseScale = LetterScaleSpline.at(activeLetterPercent);
+              const baseYOffset = LetterYOffsetSpline.at(activeLetterPercent);
+              const baseGlow = GlowSpline.at(activeLetterPercent);
+
+              const restingScale = LetterScaleSpline.at(0);
+              const restingYOffset = LetterYOffsetSpline.at(0);
+              const restingGlow = GlowSpline.at(0);
+
+              // 3. Calcul de la vague de proximité pour chaque lettre du mot
+              word.Letters.forEach((letter, k) => {
+                const letterState = getElementState(currentTime, letter.StartTime, letter.EndTime);
+                let targetScale, targetYOffset, targetGlow, targetGrad;
+
+                if (activeLetterIdx !== -1) {
+                  const distance = Math.abs(k - activeLetterIdx);
+                  // Formule exacte de Spicy Lyrics 6.1.1
+                  const falloff = Math.max(0, 1 / (1 + Math.pow(distance, 2.8)));
+                  const glowFalloff = Math.max(0, 1 / (1 + distance * 0.9));
+
+                  targetScale = restingScale + (baseScale - restingScale) * falloff;
+                  targetYOffset = restingYOffset + (baseYOffset - restingYOffset) * falloff;
+                  targetGlow = restingGlow + (baseGlow - restingGlow) * glowFalloff;
+
+                  if (falloff > maxFalloffSeen) {
+                    maxFalloffSeen = falloff;
+                    maxScaleSeen = targetScale;
+                    maxYOffsetSeen = targetYOffset;
+                    maxGlowSeen = targetGlow;
+                  }
+                } else {
+                  targetScale = restingScale;
+                  targetYOffset = restingYOffset;
+                  targetGlow = restingGlow;
+                }
+
+                // Gradient individuel par lettre selon Spicy Lyrics (LyricsAnimator.ts lignes 1105-1129)
+                if (letterState === "NotSung") {
+                  targetGrad = -20;
+                } else if (letterState === "Sung") {
+                  targetGrad = 100;
+                } else {
+                  // Seule la lettre actuellement chantée balaie son dégradé avec easeSinOut !
+                  targetGrad = (k === activeLetterIdx) ? (-20 + 120 * easeSinOut(activeLetterPercent)) : -20;
+                  activeGradPosSeen = targetGrad;
+                }
+
+                letter.AnimatorStore.Scale.SetGoal(targetScale);
+                letter.AnimatorStore.YOffset.SetGoal(targetYOffset);
+                letter.AnimatorStore.Glow.SetGoal(targetGlow);
+
+                const curScale = letter.AnimatorStore.Scale.Step(dt);
+                const curYOffset = letter.AnimatorStore.YOffset.Step(dt);
+                const curGlow = letter.AnimatorStore.Glow.Step(dt);
+
+                letter.HTMLElement.style.setProperty('--gradient-position', `${targetGrad}%`);
+                letter.HTMLElement.style.transform = `translate3d(0, calc(var(--DefaultLyricsSize) * ${curYOffset * 2}), 0)`;
+                letter.HTMLElement.style.scale = `${curScale}`;
+                letter.HTMLElement.style.setProperty('--text-shadow-blur-radius', `${4 + 12 * curGlow}px`);
+                letter.HTMLElement.style.setProperty('--text-shadow-opacity', `${curGlow * LetterGlowMultiplier_Opacity}%`);
+              });
+            } else if (wordState === "NotSung") {
+              word.Letters.forEach((letter) => {
+                letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(0));
+                letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(0));
+                letter.AnimatorStore.Glow.SetGoal(GlowSpline.at(0));
+
+                const curScale = letter.AnimatorStore.Scale.Step(dt);
+                const curYOffset = letter.AnimatorStore.YOffset.Step(dt);
+                const curGlow = letter.AnimatorStore.Glow.Step(dt);
+
+                letter.HTMLElement.style.setProperty('--gradient-position', `-20%`);
+                letter.HTMLElement.style.transform = `translate3d(0, calc(var(--DefaultLyricsSize) * ${curYOffset * 2}), 0)`;
+                letter.HTMLElement.style.scale = `${curScale}`;
+                letter.HTMLElement.style.setProperty('--text-shadow-blur-radius', `4px`);
+                letter.HTMLElement.style.setProperty('--text-shadow-opacity', `0%`);
+              });
+            } else {
+              // Word Sung
+              word.Letters.forEach((letter) => {
+                letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(1));
+                letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(1));
+                letter.AnimatorStore.Glow.SetGoal(GlowSpline.at(1));
+
+                const curScale = letter.AnimatorStore.Scale.Step(dt);
+                const curYOffset = letter.AnimatorStore.YOffset.Step(dt);
+
+                letter.HTMLElement.style.setProperty('--gradient-position', `100%`);
+                letter.HTMLElement.style.transform = `translate3d(0, calc(var(--DefaultLyricsSize) * ${curYOffset * 2}), 0)`;
+                letter.HTMLElement.style.scale = `${curScale}`;
+                letter.HTMLElement.style.setProperty('--text-shadow-blur-radius', `4px`);
+                letter.HTMLElement.style.setProperty('--text-shadow-opacity', `0%`);
+              });
+            }
+          });
+
+          telElement.textContent = `Lettre "${foundActiveLetterChar}"`;
+          telFalloff.textContent = maxFalloffSeen.toFixed(3);
+          telScale.textContent = maxScaleSeen.toFixed(3);
+          telYOffset.textContent = maxYOffsetSeen.toFixed(4);
+          telGlow.textContent = maxGlowSeen.toFixed(3);
+          telGradPos.textContent = `${activeGradPosSeen.toFixed(1)}%`;
+        }
+
+        // ─── MODE 2 : BALAYAGE PROGRESSIF LIGNE PAR LIGNE (Line Mode) ──────
+        else if (currentLyricsType === 'Line') {
+          // Implémentation stricte de LyricsAnimator.ts lignes 1767-1806
+          const targetGradientPos = -20 + 120 * linePercent;
+          const targetGlow = LineGlowSpline.at(linePercent);
+
+          activeLine.AnimatorStore.Glow.SetGoal(targetGlow);
+          const curGlow = activeLine.AnimatorStore.Glow.Step(dt);
+
+          activeLine.HTMLElement.style.setProperty('--gradient-position', `${targetGradientPos.toFixed(1)}%`);
+          activeLine.HTMLElement.style.setProperty('--text-shadow-blur-radius', `${4 + 8 * curGlow}px`);
+          activeLine.HTMLElement.style.setProperty('--text-shadow-opacity', `${curGlow * 50}%`);
+
+          telElement.textContent = `Ligne Complète`;
+          telFalloff.textContent = 'N/A';
+          telScale.textContent = '1.050';
+          telYOffset.textContent = '0.000';
+          telGlow.textContent = curGlow.toFixed(3);
+          telGradPos.textContent = `${targetGradientPos.toFixed(1)}%`;
+        }
+      }
+
+      requestAnimationFrame(animateFrame);
+    }
+
+    // Initialisation
+    buildLyricsDOM();
+    requestAnimationFrame(animateFrame);
+  </script>
+</body>
+</html>

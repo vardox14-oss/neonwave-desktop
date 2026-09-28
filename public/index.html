@@ -21,7 +21,8 @@
     <link rel="apple-touch-startup-image" href="/splash/splash-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
     <link rel="apple-touch-startup-image" href="/splash/splash-1125x2436.png" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)">
     <link rel="apple-touch-startup-image" href="/splash/splash-828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)">
-    <link rel="stylesheet" href="css/style.css?v=20260707-covertheme">
+    <link rel="stylesheet" href="css/style.css?v=20260711-lyricsfx">
+    <link rel="stylesheet" href="css/spicy-lyrics.css?v=20260928">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
         rel="stylesheet">
 </head>
@@ -583,11 +584,11 @@
     <script src="js/auth.js?v=20260610-recovery-fix"></script>
     <script src="js/changelog.js?v=20260609-1415"></script>
     <script src="js/video-player.js?v=20260707-canvas2"></script>
-    <script src="js/player.js?v=20260706-lyrics"></script>
+    <script src="js/player.js?v=20260711-lyricsfx"></script>
     <script src="js/playlists.js?v=20260608-studio"></script>
     <script src="js/music.js?v=20260707-covertheme2"></script>
     <script src="js/onboarding.js?v=20260406-recovery-fix"></script>
-    <script src="js/settings.js?v=20260707-spotify"></script>
+    <script src="js/settings.js?v=20260707-crossfade"></script>
     <script src="js/ux-extras.js?v=20260406-premium"></script>
     <script src="js/pwa.js?v=20260609-iphone-pwa"></script>
 
@@ -659,6 +660,26 @@
                 <button type="button" id="spotifyConnectBtn" onclick="Settings.toggleSpotify()" class="spotify-connect-btn">
                     Connecter Spotify
                 </button>
+            </div>
+
+            <!-- Lecture : titres enchaînés (crossfade) -->
+            <div class="playback-panel">
+                <div class="playback-panel-title">Lecture</div>
+                <div class="playback-row">
+                    <div class="playback-row-info">
+                        <strong>Titres enchaînés</strong>
+                        <p>Fond enchaîné entre les morceaux, comme Spotify.</p>
+                    </div>
+                    <label class="nw-switch">
+                        <input type="checkbox" id="crossfadeToggle" onchange="Settings.toggleCrossfade(this.checked)">
+                        <span class="nw-switch-track"></span>
+                    </label>
+                </div>
+                <div class="playback-slider-row" id="crossfadeSliderRow">
+                    <input type="range" id="crossfadeSlider" min="0" max="12" step="1" value="0"
+                        oninput="Settings.setCrossfadeDuration(this.value)">
+                    <span id="crossfadeValue" class="playback-slider-value">0 s</span>
+                </div>
             </div>
 
             <button onclick="Auth.logout()" class="btn-glow" style="width:100%;margin-top:16px;">Déconnexion</button>
@@ -833,6 +854,7 @@
         <div class="karaoke-bg-gradient"></div>
         <div class="karaoke-bg-artwork" id="karaokeBgArtwork"></div>
         <div class="karaoke-bg-artwork karaoke-bg-artwork-2" id="karaokeBgArtwork2"></div>
+        <div class="karaoke-video-bg" id="karaokeVideoBg"></div>
         <div class="karaoke-bg-veil"></div>
         <div class="karaoke-bg-glow"></div>
         

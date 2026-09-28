@@ -36,7 +36,7 @@ const getInnertube = () => {
     return innertubePromise;
 };
 
-// Privilégie webm/opus (décodage natif Chromium), puis le meilleur bitrate.
+// Privilégie mp4/m4a (compatible iOS AVPlayer et Chromium), puis le meilleur bitrate.
 const pickBestAudioFormat = (info) => {
     const candidates = [
         ...(info.streaming_data?.adaptive_formats || []),
@@ -45,10 +45,16 @@ const pickBestAudioFormat = (info) => {
 
     if (!candidates.length) return null;
 
-    const scoreOf = (format) => (
-        ((format.mime_type || '').includes('webm') ? 1_000_000 : 0)
-        + (format.bitrate || 0)
-    );
+    const scoreOf = (format) => {
+        const mime = (format.mime_type || '').toLowerCase();
+        let score = format.bitrate || 0;
+        if (mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac')) {
+            score += 2_000_000;
+        } else if (mime.includes('webm')) {
+            score += 500_000;
+        }
+        return score;
+    };
 
     return candidates.sort((left, right) => scoreOf(right) - scoreOf(left))[0];
 };

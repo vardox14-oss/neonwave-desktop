@@ -1,0 +1,446 @@
+/*
+ * ============================================================================
+ * SPICY LYRICS 6.1.1 — COMPLETE ANIMATION & VISUAL CSS STYLESHEET
+ * Faithfully extracted from spicy-lyrics-6.1.1/src/css/Lyrics/Mixed.css,
+ * main.css, tokens.css, and ContentBox.css
+ * ============================================================================
+ */
+
+:root {
+  /* ─── Apple HIG & Liquid Glass Tokens ──────────────────────────────────── */
+  --SpicyLyrics-LineSpacing: 1cqw 0;
+  --DefaultLyricsSize: clamp(1.85rem, 4vw, 3.2rem);
+  --DefaultLyricsScale: 0.95;
+  --DefaultEmphasisLyricsScale: 0.95;
+  --DefaultLineScale: 1;
+
+  --Vocal-NotSung-opacity: 0.51;
+  --Vocal-Active-opacity: 1;
+  --Vocal-Sung-opacity: 0.497;
+  --Vocal-Hover-opacity: 1;
+
+  --gradient-degrees: 90deg;
+  --gradient-alpha: 0.85;
+  --gradient-alpha-end: 0.35;
+  --gradient-position: -20%;
+  --gradient-offset: 0%;
+  --gradient-color: 255;
+
+  --lyrics-line-height: 1.1818181818;
+  --BlurAmount: 0px;
+  --text-shadow-blur-radius: 4px;
+  --text-shadow-opacity: 0%;
+
+  --TextGlowDef: rgba(255, 255, 255, 0.15) 0px 0px 6px;
+  --ActiveTextGlowDef: rgba(255, 255, 255, 0.4) 0px 0px 14px;
+  --StrongTextGlowDef: rgba(255, 255, 255, 0.68) 0px 0px 16.4px;
+  --StrongerTextGlowDef: rgba(255, 255, 255, 0.74) 0px 0px 16px;
+
+  /* Liquid Glass materials */
+  --liquid-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2);
+  --liquid-cast:
+    0 16px 40px -8px rgba(8, 10, 18, 0.55),
+    0 4px 12px -2px rgba(8, 10, 18, 0.35);
+}
+
+@property --SLM_GradientPosition {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: -50%;
+}
+
+@property --SL-LyricsContent_MaskTopPadding {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* ─── LYRICS CONTAINER & MASK ────────────────────────────────────────────── */
+
+.karaoke-lyrics-content,
+.LyricsContainer .LyricsContent {
+  container-type: size;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  height: 100%;
+  width: 100%;
+  font-size: var(--DefaultLyricsSize) !important;
+  font-weight: 700 !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  scroll-behavior: smooth;
+  z-index: 9;
+  position: relative;
+  direction: ltr;
+
+  /* Dynamic edge fading (ImageMask from Spicy Lyrics main.css) */
+  --ImageMask: linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 16px,
+    black calc(48px + var(--SL-LyricsContent_MaskTopPadding, 0px)),
+    black calc(100% - 64px),
+    transparent calc(100% - 16px),
+    transparent 100%
+  );
+  -webkit-mask-image: var(--ImageMask);
+  mask-image: var(--ImageMask);
+  padding: 40px 20px 180px 20px !important;
+}
+
+.karaoke-lyrics-content::-webkit-scrollbar,
+.LyricsContainer .LyricsContent::-webkit-scrollbar {
+  width: 4px;
+}
+
+.karaoke-lyrics-content::-webkit-scrollbar-thumb,
+.LyricsContainer .LyricsContent::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+
+/* ─── LYRIC LINES (.line & .lyrics-line) ──────────────────────────────────── */
+
+.karaoke-lyrics-content .lyrics-line,
+.karaoke-lyrics-content .line,
+.LyricsContainer .LyricsContent .line {
+  --font-size: var(--DefaultLyricsSize);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  position: relative;
+  cursor: pointer;
+  font-size: var(--font-size) !important;
+  font-weight: 700 !important;
+  line-height: var(--lyrics-line-height) !important;
+  letter-spacing: -0.015em;
+  margin: var(--SpicyLyrics-LineSpacing, 16px 0) !important;
+  padding: 8px 14px !important;
+  transform-origin: left center !important;
+  will-change: transform, opacity, filter, scale;
+  border-radius: 16px;
+  direction: ltr;
+
+  /* Cubic spline physics transition */
+  transition:
+    scale 0.2s cubic-bezier(0.37, 0, 0.63, 1),
+    transform 0.2s cubic-bezier(0.37, 0, 0.63, 1),
+    opacity 0.2s cubic-bezier(0.61, 1, 0.88, 1),
+    filter 0.25s cubic-bezier(0.37, 0, 0.63, 1) !important;
+}
+
+/* Glass hover pill highlight (Spicy Lyrics Mixed.css lines 963-982) */
+.karaoke-lyrics-content .lyrics-line::before,
+.karaoke-lyrics-content .line::before,
+.LyricsContainer .LyricsContent .line:not(.musical-line)::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%) scale(0.92);
+  width: 100%;
+  height: calc(100% + 4px);
+  background-color: rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  opacity: 0;
+  border-radius: 16px;
+  transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: center center;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.karaoke-lyrics-content .lyrics-line:hover::before,
+.karaoke-lyrics-content .line:hover::before,
+.LyricsContainer .LyricsContent .line:hover::before {
+  opacity: 1;
+  transform: translateY(-50%) scale(1.02);
+}
+
+/* ─── WORDS & CHARACTERS BASE (.word, .letter, .lyric-char) ─────────────── */
+
+/* Word wrappers : strictly transparent containers, NO background */
+.karaoke-lyrics-content .lyrics-line .word,
+.karaoke-lyrics-content .line .word,
+.karaoke-lyrics-content .word-group,
+.LyricsContainer .LyricsContent .line .word,
+.LyricsContainer .LyricsContent .line .letterGroup {
+  display: inline-block;
+  background: none !important;
+  background-image: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  border: none !important;
+  box-shadow: none !important;
+  position: relative;
+  transform-origin: center center;
+  will-change: transform, opacity, scale;
+}
+
+/* Individual letters / characters : gradient clipping strictly applied here */
+.karaoke-lyrics-content .lyrics-line .letter,
+.karaoke-lyrics-content .lyrics-line .lyric-char:not(.space),
+.karaoke-lyrics-content .line .letter,
+.karaoke-lyrics-content .line .lyric-char:not(.space),
+.LyricsContainer .LyricsContent .line .letter {
+  cursor: pointer;
+  font-weight: 700 !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  position: relative;
+  display: inline-block;
+  will-change: transform, opacity, filter, scale, text-shadow;
+  transform-origin: center center;
+  transition: transform 0.18s cubic-bezier(0.34, 1.5, 0.5, 1);
+
+  --gradient-position: -20%;
+  --gradient-color: 255;
+  --gradient-alpha: 0.85;
+  --gradient-alpha-end: 0.35;
+  --gradient-degrees: 90deg;
+  --gradient-offset: 0%;
+  --text-shadow-blur-radius: 4px;
+  --text-shadow-opacity: 0%;
+
+  background-image: linear-gradient(
+    var(--gradient-degrees, 90deg),
+    rgba(255, 255, 255, var(--gradient-alpha, 0.95)) var(--gradient-position, -20%),
+    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35))
+      calc(var(--gradient-position, -20%) + 20% + var(--gradient-offset, 0%))
+  );
+  text-shadow: 0 0 var(--text-shadow-blur-radius, 4px) rgba(255, 255, 255, var(--text-shadow-opacity, 0%));
+}
+
+.karaoke-lyrics-content .lyrics-line .lyric-char.space,
+.karaoke-lyrics-content .line .lyric-char.space {
+  width: 0.32ch;
+  display: inline-block;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Word spacing matching Spicy Lyrics */
+.karaoke-lyrics-content .lyrics-line .word:not(:last-child)::after,
+.karaoke-lyrics-content .line .word:not(:last-child)::after,
+.LyricsContainer .LyricsContent .line .word:not(:last-child)::after {
+  content: "";
+  margin-right: 0.32ch;
+}
+
+/* ─── GRADIENT & TEXT SHADOW PROGRESS (Linear-gradient clip) ─────────────── */
+
+/* 1. Active line / letters: animated white gradient sweep */
+.karaoke-lyrics-content .lyrics-line.active,
+.karaoke-lyrics-content .lyrics-line.Active,
+.karaoke-lyrics-content .line.Active,
+.karaoke-lyrics-content .line.active,
+.LyricsContainer .LyricsContent .line.Active {
+  opacity: var(--Vocal-Active-opacity, 1) !important;
+  scale: 1.05 !important;
+  filter: blur(0px) !important;
+  --BlurAmount: 0px !important;
+}
+
+/* Line mode support: if .lyrics-line has no letter sub-spans, clip gradient to line text */
+.karaoke-lyrics-content .lyrics-line.line-mode.active,
+.karaoke-lyrics-content .lyrics-line.line-mode.Active,
+.karaoke-lyrics-content .line.line-mode.Active {
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  background-image: linear-gradient(
+    var(--gradient-degrees, 90deg),
+    rgba(255, 255, 255, var(--gradient-alpha, 0.95)) var(--gradient-position, -20%),
+    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35))
+      calc(var(--gradient-position, -20%) + 20% + var(--gradient-offset, 0%))
+  );
+  text-shadow: 0 0 var(--text-shadow-blur-radius, 4px) rgba(255, 255, 255, var(--text-shadow-opacity, 0%));
+}
+
+/* 2. Not Sung (Lignes et mots à venir) */
+.karaoke-lyrics-content .lyrics-line.NotSung,
+.karaoke-lyrics-content .lyrics-line:not(.active):not(.past):not(.Sung),
+.karaoke-lyrics-content .line.NotSung,
+.LyricsContainer .LyricsContent .line.NotSung {
+  opacity: var(--Vocal-NotSung-opacity, 0.51) !important;
+  scale: var(--DefaultLyricsScale, 0.95) !important;
+  filter: blur(var(--BlurAmount, 0px)) !important;
+  --gradient-position: -20% !important;
+}
+
+.karaoke-lyrics-content .lyrics-line.NotSung .letter,
+.karaoke-lyrics-content .lyrics-line.NotSung .lyric-char:not(.space),
+.karaoke-lyrics-content .line.NotSung .letter,
+.LyricsContainer .LyricsContent .line.NotSung .letter {
+  --text-shadow-blur-radius: 4px !important;
+  --text-shadow-opacity: 0% !important;
+  --gradient-position: -20% !important;
+  text-shadow: 0 0 var(--BlurAmount, 0) rgba(255, 255, 255, 0.35);
+}
+
+/* 3. Sung (Lignes et mots déjà chantés) */
+.karaoke-lyrics-content .lyrics-line.Sung,
+.karaoke-lyrics-content .lyrics-line.past,
+.karaoke-lyrics-content .line.Sung,
+.LyricsContainer .LyricsContent .line.Sung {
+  opacity: var(--Vocal-Sung-opacity, 0.497) !important;
+  scale: var(--DefaultLyricsScale, 0.95) !important;
+  filter: blur(var(--BlurAmount, 0px)) !important;
+  --gradient-position: 100% !important;
+}
+
+.karaoke-lyrics-content .lyrics-line.Sung .letter,
+.karaoke-lyrics-content .lyrics-line.Sung .lyric-char:not(.space),
+.karaoke-lyrics-content .lyrics-line.past .lyric-char:not(.space),
+.karaoke-lyrics-content .line.Sung .letter,
+.LyricsContainer .LyricsContent .line.Sung .letter {
+  --gradient-position: 100% !important;
+  text-shadow: 0 0 var(--BlurAmount, 0) rgba(255, 255, 255, 0.45);
+}
+
+/* 4. Hover State (Mise au point instantanée survolée) */
+.karaoke-lyrics-content .lyrics-line:hover,
+.karaoke-lyrics-content .line:hover,
+.LyricsContainer .LyricsContent .line:hover {
+  opacity: var(--Vocal-Hover-opacity, 1) !important;
+  filter: blur(0px) !important;
+  --BlurAmount: 0px !important;
+}
+
+.karaoke-lyrics-content .lyrics-line:hover .letter,
+.karaoke-lyrics-content .lyrics-line:hover .lyric-char,
+.karaoke-lyrics-content .line:hover .letter {
+  opacity: 1 !important;
+  filter: blur(0px) !important;
+}
+
+/* ─── WATER WAVE & SYLLABLE PROXIMITY SPRING ANIMATION ───────────────────── */
+
+/* Revealed characters in active line (plein blanc lumineux) */
+.karaoke-lyrics-content .lyrics-line.active .lyric-char.revealed,
+.karaoke-lyrics-content .lyrics-line.Active .lyric-char.revealed,
+.karaoke-lyrics-content .lyrics-line.active .letter.revealed,
+.karaoke-lyrics-content .lyrics-line.Active .letter.revealed {
+  color: #ffffff;
+  -webkit-text-fill-color: #ffffff;
+  text-shadow:
+    0 0 10px rgba(255, 255, 255, 0.5),
+    0 0 20px rgba(255, 255, 255, 0.25);
+}
+
+/* Active "wave front" character: elevation, peak scale 1.175, intense glow */
+.karaoke-lyrics-content .lyrics-line.active .lyric-char.current,
+.karaoke-lyrics-content .lyrics-line.Active .lyric-char.current,
+.karaoke-lyrics-content .lyrics-line.active .letter.current,
+.karaoke-lyrics-content .lyrics-line.Active .letter.current {
+  color: #ffffff;
+  -webkit-text-fill-color: #ffffff;
+  scale: 1.175;
+  transform: translate3d(0, calc(var(--DefaultLyricsSize) * -0.018), 0);
+  text-shadow:
+    0 0 16px rgba(255, 255, 255, 0.9),
+    0 0 28px rgba(255, 255, 255, 0.6),
+    0 0 40px rgba(255, 255, 255, 0.35);
+  z-index: 2;
+}
+
+/* ─── MUSICAL INTERLUDE DOTS (.musical-line, .dotGroup, .dot) ────────────── */
+
+.karaoke-lyrics-content .line.musical-line,
+.karaoke-lyrics-content .lyrics-line.musical-line,
+.LyricsContainer .LyricsContent .line.musical-line {
+  transition: transform 0.14s, opacity 0.14s !important;
+  position: relative;
+  transform-origin: center center !important;
+  z-index: 1;
+  opacity: 0;
+  height: 0 !important;
+  line-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.karaoke-lyrics-content .line.musical-line.Active,
+.karaoke-lyrics-content .lyrics-line.musical-line.active,
+.LyricsContainer .LyricsContent .line.musical-line.Active {
+  opacity: 1;
+  overflow: visible !important;
+  height: auto !important;
+  line-height: var(--lyrics-line-height) !important;
+  margin: 16px 0 !important;
+}
+
+.karaoke-lyrics-content .dotGroup,
+.LyricsContainer .LyricsContent .line.musical-line .dotGroup {
+  --dot-gap: clamp(0.005rem, 1.7cqw, 0.25rem);
+  display: inline-flex;
+  flex-direction: row;
+  gap: var(--dot-gap);
+  transform-origin: center center;
+  transition: scale 0.3s !important;
+  scale: 1;
+}
+
+.karaoke-lyrics-content .dotGroup .dot,
+.LyricsContainer .LyricsContent .line.musical-line .dotGroup .dot {
+  --font-size: calc(var(--DefaultLyricsSize) * 1.3);
+  --opacity-size: 0.35;
+  border-radius: 50%;
+  scale: 0.75;
+  font-size: var(--font-size) !important;
+  opacity: var(--opacity-size);
+  --gradient-position: 100%;
+  line-height: 0.65;
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background: white;
+  margin: 0 4px;
+  will-change: transform, opacity, scale, filter;
+}
+
+/* ─── SIMPLE LYRICS MODE ANIMATIONS (keyframes) ─────────────────────────── */
+
+@keyframes SLM_Animation {
+  0% {
+    --SLM_GradientPosition: -50%;
+  }
+  100% {
+    --SLM_GradientPosition: 100%;
+  }
+}
+
+@keyframes Pre_SLM_GradientAnimation {
+  0% {
+    --SLM_GradientPosition: -50%;
+  }
+  100% {
+    --SLM_GradientPosition: -20%;
+  }
+}
+
+/* Non-synced / plain lyrics display fallback */
+.karaoke-lyrics-content:not(:has(.lyrics-line[data-time])) .lyrics-line,
+.karaoke-lyrics-content:not(:has(.active)) .lyrics-line {
+  color: rgba(255, 255, 255, 0.85) !important;
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.85) !important;
+  opacity: 0.85 !important;
+  filter: none !important;
+  scale: 1 !important;
+}
+
+.karaoke-lyrics-content .lyrics-state {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  margin-top: 60px;
+}

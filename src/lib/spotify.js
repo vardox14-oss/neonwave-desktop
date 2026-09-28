@@ -1,3 +1,5 @@
+const dns = require('dns');
+try { dns.setServers(['1.1.1.1', '8.8.8.8', '1.0.0.1']); } catch(e) {}
 const SPOTIFY_API_BASE = 'https://api.spotify.com/v1';
 const SPOTIFY_ACCOUNTS_BASE = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_MARKET = process.env.SPOTIFY_MARKET || 'FR';
@@ -462,6 +464,30 @@ const searchSpotifyTracksByArtist = async (artist, { limit = 20 } = {}) => {
         .slice(0, Math.min(Math.max(limit, 1), 50));
 };
 
+const searchTrackId = async (title, artist = '') => {
+    const safeTitle = normalizeText(title);
+    if (!safeTitle) return '';
+    try {
+        const query = `${safeTitle} ${normalizeText(artist)}`.trim();
+        const res = await spotifyRequest('/search', {
+            params: {
+                q: query,
+                type: 'track',
+                market: SPOTIFY_MARKET,
+                limit: 5
+            },
+            cacheKey: `track-id-search:${normalizeLookupKey(query)}`
+        });
+        const items = res?.tracks?.items || [];
+        if (items.length > 0 && items[0]?.id) {
+            return items[0].id;
+        }
+    } catch (err) {
+        console.warn('Track ID search failed:', err.message);
+    }
+    return '';
+};
+
 const searchSpotifyAlbumsByArtist = async (artist, { limit = 20 } = {}) => {
     const normalizedArtist = normalizeArtistInput(artist);
     if (!normalizedArtist?.name) return [];
@@ -801,12 +827,12 @@ const buildFallbackAlbumMatches = async (query, limit = 8) => {
     }));
 };
 
-const searchArtists = async (query, { limit = 8, exact = false } = {}) => {
+const searchArtists = async (query, { limit = 8, exact = false, allowFallback = true } = {}) => {
     const normalizedQuery = normalizeText(query);
     if (!normalizedQuery) return [];
 
     if (!hasSpotifyConfig()) {
-        return buildFallbackArtistMatches(normalizedQuery, limit);
+        return allowFallback ? buildFallbackArtistMatches(normalizedQuery, limit) : [];
     }
 
     const q = exact ? `artist:${normalizedQuery}` : normalizedQuery;
@@ -822,10 +848,12 @@ const searchArtists = async (query, { limit = 8, exact = false } = {}) => {
         });
 
         const artists = (data?.artists?.items || []).map(normalizeArtist);
-        return artists.length > 0 ? artists : buildFallbackArtistMatches(normalizedQuery, limit);
+        return artists.length > 0
+            ? artists
+            : (allowFallback ? buildFallbackArtistMatches(normalizedQuery, limit) : []);
     } catch (error) {
-        console.warn(`[Spotify] Artist search failed for "${query}", using local fallback:`, error.message);
-        return buildFallbackArtistMatches(normalizedQuery, limit);
+        console.warn(`[Spotify] Artist search failed for "${query}":`, error.message);
+        return allowFallback ? buildFallbackArtistMatches(normalizedQuery, limit) : [];
     }
 };
 
@@ -1608,3 +1636,4 @@ module.exports.getTrackById = getTrackById;
 module.exports.getDeepArtistRecommendations = getDeepArtistRecommendations;
 module.exports.isArtistDivergent = isArtistDivergent;
 module.exports.isValidSpotifyId = isValidSpotifyId;
+module.exports.searchTrackId = searchTrackId;

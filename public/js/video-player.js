@@ -38,8 +38,7 @@ const NowPlayingPanel = {
         }
     },
 
-    // Charge le Canvas Spotify (boucle vidéo) du morceau et l'affiche en fond.
-    // Réservé à l'app desktop connectée à Spotify ; sinon on reste sur la pochette.
+    // Charge le Canvas Spotify (boucle vidéo) du morceau et l'affiche en fond façon Spotify.
     async loadCanvas(track) {
         const video = document.getElementById('npCanvasVideo');
         const container = video && video.closest('.np-cover-container');
@@ -53,17 +52,26 @@ const NowPlayingPanel = {
         video.removeAttribute('src');
         video.load();
 
-        const spotifyId = track && (track.spotifyId || (typeof track.id === 'string' && track.id.length === 22 ? track.id : ''));
-        if (!spotifyId || !window.NeonWaveDesktop) return;
+        if (!track) return;
+        const spotifyId = track.spotifyId || (typeof track.id === 'string' && track.id.length === 22 ? track.id : '');
+        const title = track.title || '';
+        const artist = track.artist || '';
+
+        // Construit l'URL avec fallback titre/artiste pour trouver le Canvas même sans ID initial
+        const targetId = spotifyId || 'resolve';
+        const queryParams = new URLSearchParams();
+        if (title) queryParams.set('title', title);
+        if (artist) queryParams.set('artist', artist);
 
         try {
-            const res = await fetch(`/api/spotify/canvas/${encodeURIComponent(spotifyId)}`, {
+            const res = await fetch(`/api/spotify/canvas/${encodeURIComponent(targetId)}?${queryParams.toString()}`, {
                 headers: Auth.getAuthHeaders ? Auth.getAuthHeaders() : { 'Authorization': `Bearer ${Auth.getToken()}` }
             });
             if (!res.ok) return;
             const data = await res.json();
             // Morceau a changé entre-temps -> on abandonne
             if (requestId !== this.canvasToken) return;
+            if (data.spotifyId && track) track.spotifyId = data.spotifyId;
             if (!data.canvasUrl) return;
 
             video.src = data.canvasUrl;

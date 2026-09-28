@@ -1,4 +1,27 @@
+const dns = require('dns');
+try {
+    dns.setServers(['1.1.1.1', '8.8.8.8', '1.0.0.1']);
+    const customResolver = new dns.Resolver();
+    customResolver.setServers(['1.1.1.1', '8.8.8.8', '1.0.0.1']);
+    const originalLookup = dns.lookup;
+    dns.lookup = function(hostname, options, callback) {
+        if (typeof options === 'function') { callback = options; options = {}; }
+        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
+            return originalLookup.call(dns, hostname, options, callback);
+        }
+        customResolver.resolve4(hostname, (err, addrs) => {
+            if (!err && addrs && addrs.length) {
+                if (options && options.all) return callback(null, addrs.map(a => ({ address: a, family: 4 })));
+                return callback(null, addrs[0], 4);
+            }
+            originalLookup.call(dns, hostname, options, callback);
+        });
+    };
+} catch(e) {}
 const { app, BrowserWindow, session, nativeTheme, ipcMain, dialog, shell, crashReporter, Tray, Menu } = require('electron');
+app.commandLine.appendSwitch('enable-features', 'DnsOverHttps');
+app.commandLine.appendSwitch('dns-over-https-mode', 'secure');
+app.commandLine.appendSwitch('dns-over-https-templates', 'https://chrome.cloudflare-dns.com/dns-query');
 const path = require('path');
 const fs = require('fs');
 const { DiscordPresenceManager, DEFAULT_DISCORD_CLIENT_ID } = require('./src/discord-presence');
@@ -151,12 +174,20 @@ const stopSpotifyTokenWindow = () => {
     spotifyTokenWindow = null;
 };
 
+spotifySession.setOnTokenExpired(() => {
+    if (spotifyTokenWindow && !spotifyTokenWindow.isDestroyed()) {
+        spotifyTokenWindow.webContents.reload();
+    } else if (spotifySession.isConnected()) {
+        startSpotifyTokenWindow().catch((err) => writeAppLog('Spotify token reload error:', err));
+    }
+});
+
 ipcMain.on('spotify:token', (_event, token) => {
     if (token) spotifySession.setToken(token);
 });
 
 // Ouvre la fenêtre de connexion Spotify et capture le cookie sp_dc.
-ipcMain.handle('spotify:connect', async () => {
+const connectSpotify = async () => {
     const ses = session.fromPartition(SPOTIFY_PARTITION);
     const loginWindow = new BrowserWindow({
         width: 480,
@@ -190,7 +221,9 @@ ipcMain.handle('spotify:connect', async () => {
 
         loginWindow.on('closed', () => finish({ connected: spotifySession.isConnected() }));
     });
-});
+};
+
+ipcMain.handle('spotify:connect', connectSpotify);
 
 ipcMain.handle('spotify:disconnect', async () => {
     spotifySession.clear();
@@ -248,7 +281,9 @@ try {
 }
 
 function createWindow() {
+    const headless = process.argv.includes('--headless');
     const win = new BrowserWindow({
+        show: !headless,
         width: 1280,
         height: 850,
         title: "NeonWave",
@@ -360,11 +395,14 @@ app.whenReady().then(async () => {
     }
 
     createWindow();
-    createTray();
+    if (!process.argv.includes('--headless')) createTray();
 
     // Relance la session Spotify si l'utilisateur s'était déjà connecté.
     if (spotifySession.isConnected()) {
         startSpotifyTokenWindow().catch((error) => writeAppLog('Spotify token window init failed:', error));
+    }
+    if (process.argv.includes('--spotify-connect')) {
+        connectSpotify().catch((error) => writeAppLog('Spotify login window failed:', error));
     }
 
     app.on('activate', () => {
