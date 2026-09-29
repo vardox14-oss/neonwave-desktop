@@ -3,7 +3,7 @@ name: iPhone simulator for Appetize
 on:
   workflow_dispatch:
   push:
-    branches: ["codex/ios-browser-preview"]
+    branches: ["main", "codex/ios-browser-preview"]
     paths: ["ios/**", ".github/workflows/ios-simulator.yml"]
 
 permissions:
