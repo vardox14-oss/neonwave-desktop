@@ -118,17 +118,39 @@ const getCookiesPath = () => {
     return null;
 };
 
+// Détecte si le proxy Tor SOCKS5 est disponible (port 9050 local).
+const isTorAvailable = () => {
+    const net = require('net');
+    return new Promise((resolve) => {
+        const sock = net.createConnection({ host: '127.0.0.1', port: 9050 }, () => {
+            sock.destroy();
+            resolve(true);
+        });
+        sock.on('error', () => resolve(false));
+        sock.setTimeout(500, () => { sock.destroy(); resolve(false); });
+    });
+};
+
+const BGUTIL_PLUGIN_DIR = (() => {
+    const p = path.join(require('os').homedir(), '.config', 'yt-dlp', 'plugins', 'bgutil-ytdlp-pot-provider.zip');
+    return require('fs').existsSync(p) ? path.join(require('os').homedir(), '.config', 'yt-dlp', 'plugins') : null;
+})();
+
 // Télécharge l'audio complet d'une vidéo (M4A / AAC 100% natif iOS AVPlayer).
 const downloadAudio = async (videoId) => {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
     const tempFile = path.join(os.tmpdir(), `nw-${videoId}-${Date.now()}.m4a`);
     const cookiesFile = getCookiesPath();
+    const useTor = await isTorAvailable();
+    if (useTor) console.log(`   🧅 Tor disponible — routage yt-dlp via socks5h://127.0.0.1:9050`);
     const args = [
         '-v',
         '--no-playlist',
         '--no-warnings',
         '--no-progress',
         '--js-runtimes', `node:${getNodePath()}`,
+        ...(useTor ? ['--proxy', 'socks5h://127.0.0.1:9050'] : []),
+        ...(BGUTIL_PLUGIN_DIR ? ['--plugin-dirs', BGUTIL_PLUGIN_DIR] : []),
         ...(cookiesFile ? ['--cookies', cookiesFile] : []),
         '-f', '140/bestaudio[ext=m4a]/bestaudio',
         '-o', tempFile,
