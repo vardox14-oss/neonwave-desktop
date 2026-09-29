@@ -47,10 +47,105 @@ struct Album: Identifiable, Codable, Hashable {
     var appleMusicID: String? = nil
 }
 
+struct LyricWord: Hashable {
+    let text: String
+    let start: Double
+    let end: Double?
+    var isBackground: Bool = false
+}
+
 struct LyricLine: Identifiable, Hashable {
-    let id = UUID()
+    let id: UUID
     let time: Double
     let text: String
+    var words: [LyricWord]
+    var isBackground: Bool
+
+    init(id: UUID = UUID(), time: Double, text: String, words: [LyricWord] = [], isBackground: Bool? = nil) {
+        self.id = id
+        self.time = time
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isParenWrapped = (trimmed.hasPrefix("(") && trimmed.hasSuffix(")")) ||
+                             (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
+        let determinedBg = isBackground ?? isParenWrapped
+        self.isBackground = determinedBg
+
+        // Strip enclosing parentheses/brackets for backing vocals
+        if isParenWrapped && trimmed.count >= 2 {
+            let startIdx = trimmed.index(after: trimmed.startIndex)
+            let endIdx = trimmed.index(before: trimmed.endIndex)
+            self.text = String(trimmed[startIdx..<endIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            self.text = trimmed
+        }
+
+        if !words.isEmpty {
+            self.words = words.map { w in
+                var wBg = w.isBackground || determinedBg
+                var wText = w.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if (wText.hasPrefix("(") && wText.hasSuffix(")")) || (wText.hasPrefix("[") && wText.hasSuffix("]")) {
+                    wBg = true
+                    if wText.count >= 2 {
+                        let s = wText.index(after: wText.startIndex)
+                        let e = wText.index(before: wText.endIndex)
+                        wText = String(wText[s..<e]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+                if wBg {
+                    wText = wText.replacingOccurrences(of: "(", with: "")
+                                 .replacingOccurrences(of: ")", with: "")
+                                 .replacingOccurrences(of: "[", with: "")
+                                 .replacingOccurrences(of: "]", with: "")
+                                 .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                return LyricWord(text: wText.isEmpty ? w.text : wText, start: w.start, end: w.end, isBackground: wBg)
+            }
+        } else {
+            self.words = []
+        }
+    }
+
+    func animationWords(duration: Double) -> [LyricWord] {
+        if !words.isEmpty {
+            return words.map { word in
+                let wordBack = word.isBackground || self.isBackground
+                var clean = word.text
+                if wordBack {
+                    clean = clean.replacingOccurrences(of: "(", with: "")
+                                 .replacingOccurrences(of: ")", with: "")
+                                 .replacingOccurrences(of: "[", with: "")
+                                 .replacingOccurrences(of: "]", with: "")
+                                 .trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                return LyricWord(text: clean.isEmpty ? word.text : clean,
+                                 start: word.start,
+                                 end: word.end ?? max(word.start + 0.05, time + duration),
+                                 isBackground: wordBack)
+            }
+        }
+        // Plain LRC supplies no word durations. Preserve the full phrase interval;
+        // do not force a final-word emphasis or invent instrumental gaps.
+        let tokens = text.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let total = Double(max(1, tokens.reduce(0) { $0 + $1.count }))
+        var cursor = time
+        var insideParen = false
+        return tokens.map { token in
+            let start = cursor
+            cursor += duration * Double(token.count) / total
+            if token.hasPrefix("(") || token.hasPrefix("[") { insideParen = true }
+            let wordBack = self.isBackground || insideParen || token.hasPrefix("(") || token.hasSuffix(")") || token.hasPrefix("[") || token.hasSuffix("]")
+            if token.hasSuffix(")") || token.hasSuffix("]") { insideParen = false }
+            var clean = token
+            if wordBack {
+                clean = clean.replacingOccurrences(of: "(", with: "")
+                             .replacingOccurrences(of: ")", with: "")
+                             .replacingOccurrences(of: "[", with: "")
+                             .replacingOccurrences(of: "]", with: "")
+                             .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return LyricWord(text: clean.isEmpty ? token : clean, start: start, end: cursor, isBackground: wordBack)
+        }
+    }
 }
 
 struct ArtistChoice: Identifiable, Codable, Hashable {
