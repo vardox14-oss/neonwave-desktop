@@ -1,5 +1,5 @@
 const dns = require('dns');
-try { dns.setServers(['1.1.1.1', '8.8.8.8', '1.0.0.1']); } catch(e) {}
+try { dns.setDefaultResultOrder('ipv4first'); } catch(e) {}
 const SPOTIFY_API_BASE = 'https://api.spotify.com/v1';
 const SPOTIFY_ACCOUNTS_BASE = 'https://accounts.spotify.com/api/token';
 const SPOTIFY_MARKET = process.env.SPOTIFY_MARKET || 'FR';
@@ -372,7 +372,7 @@ const normalizeTrack = (track, albumOverride = null) => {
     };
 };
 
-const searchTracks = async (query, { limit = 10 } = {}) => {
+const searchTracks = async (query, { limit = 10, offset = 0 } = {}) => {
     const normalizedQuery = normalizeText(query);
     if (!normalizedQuery) return [];
 
@@ -381,19 +381,45 @@ const searchTracks = async (query, { limit = 10 } = {}) => {
     }
 
     try {
+        const pageSize = Math.min(Math.max(limit, 1), 10);
         const data = await spotifyRequest('/search', {
             params: {
                 q: normalizedQuery,
                 type: 'track',
                 market: SPOTIFY_MARKET,
-                limit: Math.min(Math.max(limit, 1), 10)
+                limit: pageSize,
+                offset: Math.max(0, offset)
             },
-            cacheKey: `tracks:${normalizedQuery.toLowerCase()}:${limit}`
+            cacheKey: `tracks:${normalizedQuery.toLowerCase()}:${pageSize}:${offset}`
         });
 
-        return (data?.tracks?.items || [])
+        let tracks = (data?.tracks?.items || [])
             .map((track) => normalizeTrack(track))
             .filter((track) => track.name && track.artists.length);
+
+        if (limit > 10 && tracks.length >= 10) {
+            try {
+                const secondPageLimit = Math.min(limit - 10, 10);
+                const data2 = await spotifyRequest('/search', {
+                    params: {
+                        q: normalizedQuery,
+                        type: 'track',
+                        market: SPOTIFY_MARKET,
+                        limit: secondPageLimit,
+                        offset: offset + 10
+                    },
+                    cacheKey: `tracks:${normalizedQuery.toLowerCase()}:${secondPageLimit}:${offset + 10}`
+                });
+                const tracks2 = (data2?.tracks?.items || [])
+                    .map((track) => normalizeTrack(track))
+                    .filter((track) => track.name && track.artists.length);
+                tracks = tracks.concat(tracks2);
+            } catch (pageError) {
+                // Return page 1 if page 2 fails
+            }
+        }
+
+        return tracks;
     } catch (error) {
         if (isSpotifyErrorStatus(error, [403])) {
             return [];

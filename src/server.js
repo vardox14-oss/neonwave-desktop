@@ -3149,53 +3149,51 @@ app.post('/api/auth/logout', (_req, res) => {
 app.get('/api/music/search', authenticate, async (req, res) => {
     const query = normalizeChoiceValue(req.query.q || '');
     const filter = req.query.filter || 'all';
-    const searchQueries = buildSearchQueryVariants(query);
-    console.log(`🔍 Search: ${query} (filter: ${filter})`);
+
+    if (!query) {
+        return res.json({ items: [], filter: normalizeSearchFilter(filter), source: 'empty' });
+    }
 
     try {
         let spotifyItems = [];
-        let spotifyTracks = [];
         if (spotify.hasSpotifyConfig() && (filter === 'all' || filter === 'music')) {
-            // Priority: Spotify Search
-            console.log('   Using Spotify search priority...');
-            for (const currentQuery of searchQueries) {
-                try {
-                    const currentTracks = await spotify.searchTracks(currentQuery, { limit: 10 });
-                    spotifyTracks = mergeSpotifyTracks(spotifyTracks, currentTracks);
-                    if (spotifyTracks.length >= 12) {
-                        break;
-                    }
-                } catch (spotifyError) {
-                    console.warn(`   Spotify variant search failed for "${currentQuery}":`, spotifyError.message);
-                }
+            const spotifyTracks = await spotify.searchTracks(query, { limit: 20 });
+            if (spotifyTracks.length > 0) {
+                spotifyItems = await mapSpotifyTracksToPlayablePayload(spotifyTracks);
             }
-            spotifyItems = await mapSpotifyTracksToPlayablePayload(spotifyTracks.slice(0, 12));
         }
 
-        // Fallback: Piped/YouTube search
-        console.log('   Using Piped/YouTube fallback search...');
+        // High quality Spotify results: return immediately without polluting with noisy scrape items
+        if (spotifyItems.length >= 5) {
+            return res.json({
+                items: spotifyItems.slice(0, 20),
+                filter: normalizeSearchFilter(filter),
+                source: 'spotify'
+            });
+        }
+
+        // Fallback: YouTube/InnerTube search when Spotify has insufficient or 0 results
         const fallbackFilter = filter === 'all' ? 'music' : filter;
         let fallbackItems = [];
+        const searchQueries = buildSearchQueryVariants(query);
         for (const currentQuery of searchQueries) {
             try {
                 const variantItems = await fetchSearchItems(currentQuery, fallbackFilter);
                 fallbackItems = mergePlayableItems(fallbackItems, variantItems);
-                if (fallbackItems.length >= 12) {
-                    break;
-                }
+                if (fallbackItems.length >= 12) break;
             } catch (fallbackError) {
-                console.warn(`   Fallback variant search failed for "${currentQuery}":`, fallbackError.message);
+                console.warn(`Fallback variant search failed for "${currentQuery}":`, fallbackError.message);
             }
         }
-        const items = mergePlayableItems(spotifyItems, fallbackItems).slice(0, 18);
+
+        const items = spotifyItems.length > 0
+            ? mergePlayableItems(spotifyItems, fallbackItems).slice(0, 20)
+            : fallbackItems.slice(0, 20);
+
         res.json({
             items,
             filter: normalizeSearchFilter(filter),
-            source: spotifyItems.length && fallbackItems.length
-                ? 'hybrid'
-                : spotifyItems.length
-                    ? 'spotify'
-                    : 'piped'
+            source: spotifyItems.length ? 'hybrid' : 'youtube'
         });
     } catch (err) {
         console.error('Final search error:', err);
@@ -3368,33 +3366,8 @@ app.get('/api/spotify/search', authenticate, async (req, res) => {
             return res.json({ items: [], filter, spotifyEnabled: spotify.hasSpotifyConfig() });
         }
 
-        const bestArtistMatch = await spotify.findBestArtistMatch(query, { limit: 8 });
-        const isExactArtistQuery = bestArtistMatch
-            && normalizeComparisonValue(bestArtistMatch.name) === normalizeComparisonValue(query);
-
-        // Search results ALWAYS come first — artist top tracks only fill remaining slots
-        const searchedTracks = await spotify.searchTracks(query, { limit: 20 });
-        const filteredTracks = isExactArtistQuery
-            ? searchedTracks.filter((track) => (track.artists || []).some((artist) => {
-                const artistId = normalizeChoiceValue(artist?.spotifyId || artist?.id || '');
-                const artistName = normalizeChoiceValue(artist?.name || artist);
-                return artistId === bestArtistMatch.spotifyId
-                    || normalizeComparisonValue(artistName) === normalizeComparisonValue(bestArtistMatch.name);
-            }))
-            : searchedTracks;
-
-        let bonusTracks = [];
-        if (isExactArtistQuery && filteredTracks.length < 10) {
-            try {
-                const artistProfile = await spotify.getArtistProfile(bestArtistMatch.spotifyId, { name: bestArtistMatch.name });
-                bonusTracks = Array.isArray(artistProfile?.topTracks) ? artistProfile.topTracks : [];
-            } catch (artistProfileError) {
-                console.warn('Spotify search artist-priority warning:', artistProfileError);
-            }
-        }
-
-        // Search results first, then filler from artist top tracks
-        const spotifyTracks = mergeSpotifyTracks(filteredTracks, bonusTracks).slice(0, 20);
+        // Direct, high-precision Spotify search — exact ranking by relevance and popularity
+        const spotifyTracks = await spotify.searchTracks(query, { limit: 20 });
         const items = await mapSpotifyTracksToPlayablePayload(spotifyTracks);
 
         res.json({
