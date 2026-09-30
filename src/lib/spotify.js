@@ -514,7 +514,7 @@ const searchTrackId = async (title, artist = '') => {
     return '';
 };
 
-const searchSpotifyAlbumsByArtist = async (artist, { limit = 20 } = {}) => {
+const searchSpotifyAlbumsByArtist = async (artist, { limit = 10 } = {}) => {
     const normalizedArtist = normalizeArtistInput(artist);
     if (!normalizedArtist?.name) return [];
 
@@ -523,15 +523,18 @@ const searchSpotifyAlbumsByArtist = async (artist, { limit = 20 } = {}) => {
         normalizedArtist.name
     ];
 
+    // Spotify /search allows max 10 results per page in basic mode
+    const pageSize = Math.min(Math.max(limit, 1), 10);
+
     const responses = await Promise.allSettled(
         queries.map((query, index) => spotifyRequest('/search', {
             params: {
                 q: query,
                 type: 'album',
                 market: SPOTIFY_MARKET,
-                limit: Math.min(Math.max(limit, 1), 50)
+                limit: pageSize
             },
-            cacheKey: `artist-album-search:${normalizedArtist.spotifyId || normalizedArtist.name.toLowerCase()}:${index}:${limit}`
+            cacheKey: `artist-album-search:${normalizedArtist.spotifyId || normalizedArtist.name.toLowerCase()}:${index}:${pageSize}`
         }))
     );
 
@@ -975,27 +978,33 @@ const getArtistTopTracks = async (artistId, { artistName = '', albumCandidates =
     const normalizedId = normalizeText(artistId);
     if (!normalizedId) return [];
 
-    try {
-        const data = await spotifyRequest(`/artists/${encodeURIComponent(normalizedId)}/top-tracks`, {
+    const artistRef = { spotifyId: normalizedId, name: artistName };
+
+    // Try the top-tracks endpoint and the search fallback in parallel.
+    // The /top-tracks endpoint returns 403 in Spotify basic mode, so running
+    // both at once avoids a full round-trip delay when the first one fails.
+    const [tracksResult, searchResult] = await Promise.allSettled([
+        spotifyRequest(`/artists/${encodeURIComponent(normalizedId)}/top-tracks`, {
             params: { market: SPOTIFY_MARKET },
             cacheKey: `artist-top-tracks:${normalizedId}`
-        });
+        }),
+        searchSpotifyTracksByArtist(artistRef, { limit: 10 })
+    ]);
 
-        return (data?.tracks || [])
+    // Prefer the official top-tracks if it succeeded
+    if (tracksResult.status === 'fulfilled' && tracksResult.value?.tracks?.length) {
+        return (tracksResult.value.tracks)
             .map((track) => normalizeTrack(track))
             .filter((track) => track.name);
-    } catch (error) {
-        if (isSpotifyErrorStatus(error, [400, 401, 403, 404])) {
-            const artistRef = { spotifyId: normalizedId, name: artistName };
-            const searchTracks = await searchSpotifyTracksByArtist(artistRef, { limit: 10 });
-            if (searchTracks.length) {
-                return searchTracks;
-            }
-
-            return buildTopTracksFromAlbums(artistRef, albumCandidates, { limit: 10 });
-        }
-        throw error;
     }
+
+    // Use search fallback
+    if (searchResult.status === 'fulfilled' && searchResult.value?.length) {
+        return searchResult.value;
+    }
+
+    // Last resort: build from albums
+    return buildTopTracksFromAlbums(artistRef, albumCandidates, { limit: 10 });
 };
 
 const getArtistAlbums = async (artistId, { includeGroups = 'album,single,appears_on', limit = 50, artistName = '' } = {}) => {
@@ -1382,7 +1391,7 @@ const getRelatedArtists = async (artistId, fallbackArtist = null) => {
     const normalizedId = normalizeText(artistId);
 
     if (!normalizedId || normalizedId === 'fallback' || !hasSpotifyConfig()) {
-        return [];
+        return getFallbackRelatedArtists(fallbackArtist);
     }
 
     try {
@@ -1401,9 +1410,10 @@ const getRelatedArtists = async (artistId, fallbackArtist = null) => {
         if (!isRecoverableSpotifyLookupError(error)) {
             throw error;
         }
+        // 403/400/404 → use static fallbacks (endpoint blocked in Spotify basic mode)
     }
 
-    return [];
+    return getFallbackRelatedArtists(fallbackArtist);
 };
 
 const getArtistProfile = async (artistId, { name = '' } = {}) => {
