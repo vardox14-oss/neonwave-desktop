@@ -378,6 +378,19 @@ const authenticateAudioStream = (req, res, next) => {
     }
 };
 
+const createAudioStreamTicket = (videoId, userId = 'guest') => {
+    return jwt.sign({
+        id: userId,
+        videoId,
+        purpose: 'ios-audio-stream'
+    }, JWT_SECRET, { expiresIn: '2h' });
+};
+
+const getAudioStreamPath = (videoId, userId = 'guest') => {
+    const ticket = createAudioStreamTicket(videoId, userId);
+    return `/api/music/streams/${encodeURIComponent(videoId)}?ticket=${encodeURIComponent(ticket)}`;
+};
+
 const requireAdmin = (req, res, next) => {
     if (req.user.role !== 'OWNER' && req.user.role !== 'ADMIN') {
         return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
@@ -3492,8 +3505,10 @@ app.get('/api/music/resolve/:spotifyId', async (req, res) => {
         }
 
         console.log(`Resolved ${normalizedTrack.name} -> ${resolvedVideoId} via ${resolvedMatch?.sourceLabel || 'unknown'} (score: ${resolvedMatch?.score || 'n/a'})`);
+        loadAudio(resolvedVideoId).catch(() => {});
         return res.json({
             videoId: resolvedVideoId,
+            streamPath: getAudioStreamPath(resolvedVideoId),
             title: normalizedTrack.name || track.name || requestTitle || 'Sans titre',
             artist: resolvedArtistLabel || requestArtist || 'Artiste inconnu',
             duration: Math.round((normalizedTrack.durationMs || track.durationMs || 0) / 1000)
@@ -3547,8 +3562,10 @@ app.get('/api/music/resolve-by-metadata', async (req, res) => {
         const resolvedThumbnail = spotifyTrackInfo?.imageUrl || spotifyTrackInfo?.album?.imageUrl || (Array.isArray(spotifyTrackInfo?.album?.images) && spotifyTrackInfo.album.images[0]?.url) || null;
 
         console.log(`Resolved metadata ${normalizedTrack.name} -> ${videoId} via ${resolvedMatch?.sourceLabel || 'unknown'} (score: ${resolvedMatch?.score || 'n/a'})`);
+        loadAudio(videoId).catch(() => {});
         return res.json({
             videoId,
+            streamPath: getAudioStreamPath(videoId),
             title: spotifyTrackInfo?.name || normalizedTrack.name || title,
             artist: (spotifyTrackInfo?.artists ? spotifyTrackInfo.artists.map(a => a.name).join(', ') : '') || artist || getTrackPrimaryArtistName(normalizedTrack) || 'Artiste inconnu',
             duration: resolvedDuration,
@@ -3879,7 +3896,7 @@ const parseRangeHeader = (rangeHeader) => {
 // Range : seeks instantanés et zéro nouvelle requête YouTube.
 const audioMemCache = new Map(); // videoId -> { buffer, mimeType }
 const audioInFlight = new Map(); // videoId -> Promise<entry|null>
-const AUDIO_MEM_CACHE_MAX = 12; // ~12 morceaux (opus ~4 Mo) => ~50 Mo max
+const AUDIO_MEM_CACHE_MAX = 100; // ~100 morceaux en cache RAM (m4a ~3 Mo) => ~300 Mo max
 
 const AUDIO_DOWNLOAD_CHUNK = 1024 * 1024; // 1 Mo : taille de plage toujours acceptée
 
@@ -4032,13 +4049,12 @@ app.post('/api/music/streams/:id/ticket', (req, res) => {
         } catch {}
     }
 
-    const ticket = jwt.sign({
-        id: userId,
-        videoId,
-        purpose: 'ios-audio-stream'
-    }, JWT_SECRET, { expiresIn: '2h' });
+    // Pre-warm audio in memory immediately so it's ready when AVPlayer connects
+    loadAudio(videoId).catch(err => {
+        console.warn(`[Stream Ticket] Pre-warm failed for ${videoId}:`, err.message);
+    });
 
-    res.json({ path: `/api/music/streams/${encodeURIComponent(videoId)}?ticket=${encodeURIComponent(ticket)}` });
+    res.json({ path: getAudioStreamPath(videoId, userId) });
 });
 
 app.get('/api/music/streams/:id', authenticateAudioStream, async (req, res) => {
