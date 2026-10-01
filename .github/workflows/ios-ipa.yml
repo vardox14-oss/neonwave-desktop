@@ -34,7 +34,7 @@ jobs:
           xcodebuild \
             -project ios/NeonWave.xcodeproj \
             -scheme NeonWave \
-            -configuration Release \
+            -configuration Debug \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath ios/DerivedData \
@@ -45,7 +45,7 @@ jobs:
       - name: Package .app into unsigned .ipa (Payload/)
         run: |
           set -euo pipefail
-          APP_PATH=ios/DerivedData/Build/Products/Release-iphoneos/NeonWave.app
+          APP_PATH=ios/DerivedData/Build/Products/Debug-iphoneos/NeonWave.app
           test -d "$APP_PATH"
           STAGING=$(mktemp -d)
           mkdir -p "$STAGING/Payload"
