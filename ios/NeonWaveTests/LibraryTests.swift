@@ -231,3 +231,218 @@ final class SpicyWaveAnimationTests: XCTestCase {
         XCTAssertLessThan(back.time, 15.0)
     }
 }
+
+final class CrossfadeMathTests: XCTestCase {
+    func testEqualPowerGainsKeepLoudnessConstant() {
+        for step in 0...40 {
+            let gains = CrossfadeMath.gains(progress: Double(step) / 40)
+            XCTAssertEqual(Double(gains.out * gains.out + gains.in * gains.in), 1, accuracy: 0.0001)
+        }
+        XCTAssertEqual(CrossfadeMath.gains(progress: 0).out, 1, accuracy: 0.0001)
+        XCTAssertEqual(CrossfadeMath.gains(progress: 0).in, 0, accuracy: 0.0001)
+        XCTAssertEqual(CrossfadeMath.gains(progress: 1).out, 0, accuracy: 0.0001)
+        XCTAssertEqual(CrossfadeMath.gains(progress: 1).in, 1, accuracy: 0.0001)
+        XCTAssertEqual(CrossfadeMath.gains(progress: 0.5).out, CrossfadeMath.gains(progress: 0.5).in, accuracy: 0.0001)
+    }
+
+    func testGainsAreClampedAndMonotonic() {
+        XCTAssertEqual(CrossfadeMath.gains(progress: -3).out, 1, accuracy: 0.0001)
+        XCTAssertEqual(CrossfadeMath.gains(progress: 7).in, 1, accuracy: 0.0001)
+        XCTAssertEqual(CrossfadeMath.gains(progress: .nan).in, 1, accuracy: 0.0001)
+        var previous = CrossfadeMath.gains(progress: 0)
+        for step in 1...40 {
+            let gains = CrossfadeMath.gains(progress: Double(step) / 40)
+            XCTAssertLessThanOrEqual(gains.out, previous.out)
+            XCTAssertGreaterThanOrEqual(gains.in, previous.in)
+            previous = gains
+        }
+    }
+
+    func testFadeIsCappedForShortSongs() {
+        XCTAssertEqual(CrossfadeMath.effectiveFade(setting: 6, outgoingLength: 200, incomingLength: 180), 6)
+        XCTAssertEqual(CrossfadeMath.effectiveFade(setting: 6, outgoingLength: 10, incomingLength: 200), 4, accuracy: 1e-9)
+        XCTAssertEqual(CrossfadeMath.effectiveFade(setting: 6, outgoingLength: 200, incomingLength: 5), 2, accuracy: 1e-9)
+        XCTAssertEqual(CrossfadeMath.effectiveFade(setting: 6, outgoingLength: 30, incomingLength: 0), 6)
+        XCTAssertEqual(CrossfadeMath.effectiveFade(setting: 0, outgoingLength: 200, incomingLength: 200), 0)
+        XCTAssertEqual(CrossfadeMath.effectiveFade(setting: 6, outgoingLength: 0, incomingLength: 200), 0)
+    }
+
+    func testUpcomingIndexFollowsQueueRules() {
+        func upcoming(_ current: Int, _ count: Int, _ mode: RepeatMode) -> Int? {
+            CrossfadeMath.upcomingIndex(current: current, count: count, shuffle: false, repeatMode: mode)
+        }
+        XCTAssertEqual(upcoming(0, 3, .off), 1)
+        XCTAssertNil(upcoming(2, 3, .off))
+        XCTAssertEqual(upcoming(2, 3, .all), 0)
+        XCTAssertNil(upcoming(0, 3, .one))
+        XCTAssertNil(upcoming(0, 0, .all))
+        XCTAssertNil(upcoming(0, 1, .off))
+        XCTAssertEqual(upcoming(0, 1, .all), 0)
+    }
+
+    func testShuffleNeverPicksTheCurrentTrackAndReachesAllOthers() {
+        for current in 0..<5 {
+            let reached = (0..<4).compactMap { pick in
+                CrossfadeMath.upcomingIndex(current: current, count: 5, shuffle: true, repeatMode: .off, random: { _ in pick })
+            }
+            XCTAssertEqual(reached.count, 4)
+            XCTAssertFalse(reached.contains(current))
+            XCTAssertEqual(Set(reached), Set(0..<5).subtracting([current]))
+        }
+        XCTAssertNil(CrossfadeMath.upcomingIndex(current: 0, count: 5, shuffle: true, repeatMode: .one))
+    }
+}
+
+/// Real playback with two generated audio files on the simulator.
+@MainActor final class CrossfadePlaybackTests: XCTestCase {
+    private func makeFixture(lengths: [Double], fade: Double) throws -> (LibraryStore, AudioPlayer, [Track], @MainActor () -> Void) {
+        let store = LibraryStore()
+        store.activate("xfade-\(UUID().uuidString)")
+        let previousSetting = UserDefaults.standard.object(forKey: "nw.crossfadeSeconds")
+        let tracks = try lengths.enumerated().map { offset, length in
+            try writeTone("xfade-\(offset).wav", seconds: length, frequency: 330 + Double(offset) * 110, in: store)
+        }
+        let player = AudioPlayer()
+        player.connect(store)
+        player.crossfadeSeconds = fade
+        let cleanup: @MainActor () -> Void = {
+            player.stop()
+            try? store.eraseAccountFiles()
+            if let previousSetting { UserDefaults.standard.set(previousSetting, forKey: "nw.crossfadeSeconds") }
+            else { UserDefaults.standard.removeObject(forKey: "nw.crossfadeSeconds") }
+        }
+        return (store, player, tracks, cleanup)
+    }
+
+    private func writeTone(_ name: String, seconds: Double, frequency: Double, in store: LibraryStore) throws -> Track {
+        let url = try XCTUnwrap(store.fileURL(name))
+        let rate = 44_100
+        let frames = Int(seconds * Double(rate))
+        var pcm = Data(capacity: frames * 2)
+        for frame in 0..<frames {
+            let sample = Int16(sin(2 * .pi * frequency * Double(frame) / Double(rate)) * 6000)
+            withUnsafeBytes(of: sample.littleEndian) { pcm.append(contentsOf: $0) }
+        }
+        var wav = Data()
+        func u32(_ value: UInt32) { withUnsafeBytes(of: value.littleEndian) { wav.append(contentsOf: $0) } }
+        func u16(_ value: UInt16) { withUnsafeBytes(of: value.littleEndian) { wav.append(contentsOf: $0) } }
+        wav.append(contentsOf: "RIFF".utf8); u32(UInt32(36 + pcm.count)); wav.append(contentsOf: "WAVEfmt ".utf8)
+        u32(16); u16(1); u16(1); u32(UInt32(rate)); u32(UInt32(rate * 2)); u16(2); u16(16)
+        wav.append(contentsOf: "data".utf8); u32(UInt32(pcm.count)); wav.append(pcm)
+        try wav.write(to: url)
+        return Track(title: name, artist: "Test", duration: seconds, fileName: name)
+    }
+
+    private func waitUntil(_ timeout: Double, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(40))
+        }
+        return condition()
+    }
+
+    private func startPlayback(_ player: AudioPlayer, _ track: Track, in tracks: [Track]) async throws {
+        player.play(track, in: tracks)
+        guard await waitUntil(6, { player.isPlaying && player.elapsed > 0.2 }) else {
+            throw XCTSkip("Aucune sortie audio sur ce simulateur : la lecture réelle ne peut pas être vérifiée ici.")
+        }
+    }
+
+    func testFadesIntoNextDownloadedTrackWithRealOverlap() async throws {
+        let (_, player, tracks, cleanup) = try makeFixture(lengths: [6, 6], fade: 2)
+        defer { cleanup() }
+        try await startPlayback(player, tracks[0], in: tracks)
+
+        let ok1 = await waitUntil(8) { player.isCrossfading }
+
+        XCTAssertTrue(ok1, "Le fondu n'a jamais démarré")
+        XCTAssertEqual(player.current?.id, tracks[1].id, "L'interface doit afficher le titre entrant dès le début du fondu")
+        XCTAssertEqual(player.fadeSnapshot?.outgoingPlaying, true, "Le titre sortant doit encore jouer pendant le fondu")
+
+        var sawBothAudible = false
+        var samples = 0
+        while player.isCrossfading, samples < 200 {
+            if let snapshot = player.fadeSnapshot {
+                let power = Double(snapshot.outgoingVolume * snapshot.outgoingVolume + snapshot.incomingVolume * snapshot.incomingVolume)
+                XCTAssertEqual(power, 1, accuracy: 0.05, "Le volume perçu doit rester constant pendant le fondu")
+                if snapshot.outgoingVolume > 0.3 && snapshot.incomingVolume > 0.3 { sawBothAudible = true }
+            }
+            samples += 1
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(sawBothAudible, "Les deux titres doivent être audibles en même temps au milieu du fondu")
+        XCTAssertFalse(player.isCrossfading, "Le fondu doit se terminer")
+        XCTAssertNil(player.fadeSnapshot)
+        XCTAssertEqual(player.current?.id, tracks[1].id)
+        let ok2 = await waitUntil(2) { player.isPlaying }
+        XCTAssertTrue(ok2)
+        XCTAssertGreaterThan(player.elapsed, 1, "Le titre entrant doit continuer depuis le fondu, pas redémarrer à zéro")
+    }
+
+    func testPauseDuringFadeStopsThePreviousSongAndKeepsTheNewOne() async throws {
+        let (_, player, tracks, cleanup) = try makeFixture(lengths: [6, 6], fade: 2)
+        defer { cleanup() }
+        try await startPlayback(player, tracks[0], in: tracks)
+        let ok3 = await waitUntil(8) { player.isCrossfading }
+        XCTAssertTrue(ok3)
+
+        player.pause()
+        XCTAssertFalse(player.isCrossfading)
+        XCTAssertNil(player.fadeSnapshot)
+        XCTAssertEqual(player.current?.id, tracks[1].id)
+        try await Task.sleep(for: .milliseconds(600))
+        XCTAssertFalse(player.isPlaying)
+        XCTAssertEqual(player.current?.id, tracks[1].id)
+
+        player.resume()
+        let ok4 = await waitUntil(3) { player.isPlaying }
+        XCTAssertTrue(ok4)
+        XCTAssertEqual(player.current?.id, tracks[1].id)
+    }
+
+    func testNextDuringFadeSkipsTheIncomingSong() async throws {
+        let (_, player, tracks, cleanup) = try makeFixture(lengths: [6, 6, 6], fade: 2)
+        defer { cleanup() }
+        try await startPlayback(player, tracks[0], in: tracks)
+        let ok5 = await waitUntil(8) { player.isCrossfading }
+        XCTAssertTrue(ok5)
+
+        player.next()
+        XCTAssertFalse(player.isCrossfading)
+        XCTAssertEqual(player.current?.id, tracks[2].id)
+        let ok6 = await waitUntil(3) { player.isPlaying }
+        XCTAssertTrue(ok6)
+    }
+
+    func testRepeatOneNeverCrossfades() async throws {
+        let (_, player, tracks, cleanup) = try makeFixture(lengths: [4, 4], fade: 2)
+        defer { cleanup() }
+        player.repeatMode = .one
+        try await startPlayback(player, tracks[0], in: tracks)
+        var faded = false
+        _ = await waitUntil(6) { faded = faded || player.isCrossfading; return false }
+        XCTAssertFalse(faded)
+        XCTAssertEqual(player.current?.id, tracks[0].id)
+    }
+
+    func testDisabledCrossfadeStillAdvancesAtTheEnd() async throws {
+        let (_, player, tracks, cleanup) = try makeFixture(lengths: [3, 3], fade: 0)
+        defer { cleanup() }
+        try await startPlayback(player, tracks[0], in: tracks)
+        var faded = false
+        let advanced = await waitUntil(7) { faded = faded || player.isCrossfading; return player.current?.id == tracks[1].id }
+        XCTAssertTrue(advanced)
+        XCTAssertFalse(faded)
+    }
+
+    func testLastTrackWithoutRepeatDoesNotFade() async throws {
+        let (_, player, tracks, cleanup) = try makeFixture(lengths: [4], fade: 2)
+        defer { cleanup() }
+        try await startPlayback(player, tracks[0], in: tracks)
+        var faded = false
+        _ = await waitUntil(6) { faded = faded || player.isCrossfading; return false }
+        XCTAssertFalse(faded)
+        XCTAssertFalse(player.isPlaying)
+    }
+}

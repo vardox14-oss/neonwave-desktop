@@ -49,6 +49,21 @@ struct SettingsView: View {
                     Toggle("Retours haptiques", isOn: Binding(get: { library.snapshot.haptics }, set: library.setHaptics))
                     Toggle("Téléchargements en Wi-Fi", isOn: Binding(get: { library.snapshot.wifiOnly }, set: library.setWifiOnly))
                 }.listRowBackground(NW.surface)
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Label("Fondu enchaîné", systemImage: "wave.3.right")
+                            Spacer()
+                            Text(player.crossfadeSeconds == 0 ? "Désactivé" : "\(Int(player.crossfadeSeconds)) s")
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(NW.muted)
+                        }
+                        Slider(value: $player.crossfadeSeconds, in: 0...12, step: 1)
+                            .tint(NW.violet)
+                    }.padding(.vertical, 4)
+                } header: { Text("Lecture") } footer: {
+                    Text("Les titres téléchargés se fondent l’un dans l’autre. Apple Music et le streaming enchaînent sans fondu : Apple ne permet pas aux autres apps de contrôler leur volume.")
+                }.listRowBackground(NW.surface)
                 Section("À propos") {
                     Button { showPrivacy = true } label: { Label("Confidentialité", systemImage: "hand.raised") }
                     if let url = AppConfiguration.publicURL("NeonWaveSupportURL") { Link(destination: url) { Label("Besoin d’aide ?", systemImage: "questionmark.circle") } }
