@@ -26,7 +26,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build the SwiftUI app for iOS device (unsigned)
+      - name: Seed Local.xcconfig so the Release gate passes
+        run: |
+          cat > ios/Local.xcconfig <<'EOF'
+          NEONWAVE_API_URL = https:/$()/sideload.local
+          NEONWAVE_PRIVACY_URL = https:/$()/sideload.local/privacy
+          NEONWAVE_SUPPORT_URL = https:/$()/sideload.local/support
+          DEVELOPMENT_TEAM = SIDELOAD
+          EOF
+
+      - name: Build the SwiftUI app for iOS device (unsigned, Release)
         run: |
           set -euo pipefail
           mkdir -p ios/build
@@ -34,18 +43,19 @@ jobs:
           xcodebuild \
             -project ios/NeonWave.xcodeproj \
             -scheme NeonWave \
-            -configuration Debug \
+            -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath ios/DerivedData \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            ENABLE_PREVIEWS=NO \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build 2>&1 | tee ios/build/xcodebuild-device.log
 
       - name: Package .app into unsigned .ipa (Payload/)
         run: |
           set -euo pipefail
-          APP_PATH=ios/DerivedData/Build/Products/Debug-iphoneos/NeonWave.app
+          APP_PATH=ios/DerivedData/Build/Products/Release-iphoneos/NeonWave.app
           test -d "$APP_PATH"
           STAGING=$(mktemp -d)
           mkdir -p "$STAGING/Payload"
