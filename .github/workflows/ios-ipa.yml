@@ -26,12 +26,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Seed Local.xcconfig so the Release gate passes
+      - name: Seed Local.xcconfig with the production server
         run: |
+          # DEVELOPMENT_TEAM only satisfies the Release gate: signing is off, Sideloadly re-signs.
           cat > ios/Local.xcconfig <<'EOF'
-          NEONWAVE_API_URL = https:/$()/sideload.local
-          NEONWAVE_PRIVACY_URL = https:/$()/sideload.local/privacy
-          NEONWAVE_SUPPORT_URL = https:/$()/sideload.local/support
+          NEONWAVE_API_URL = https:/$()/51.77.159.172.sslip.io
+          NEONWAVE_PRIVACY_URL = https:/$()/neonwave.app/privacy
+          NEONWAVE_SUPPORT_URL = https:/$()/neonwave.app/support
           DEVELOPMENT_TEAM = SIDELOAD
           EOF
 
@@ -51,6 +52,13 @@ jobs:
             ENABLE_PREVIEWS=NO \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build 2>&1 | tee ios/build/xcodebuild-device.log
+
+      - name: Verify the app points to the production server
+        run: |
+          set -euo pipefail
+          API=$(/usr/libexec/PlistBuddy -c "Print :NeonWaveAPIURL" ios/DerivedData/Build/Products/Release-iphoneos/NeonWave.app/Info.plist)
+          echo "NeonWaveAPIURL = $API"
+          test "$API" = "https://51.77.159.172.sslip.io"
 
       - name: Package .app into unsigned .ipa (Payload/)
         run: |
