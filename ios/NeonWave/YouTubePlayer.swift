@@ -46,8 +46,36 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
         wv.scrollView.backgroundColor = .clear
         wv.scrollView.isScrollEnabled = false
         wv.navigationDelegate = self
+        wv.alpha = 0.01
+        wv.isUserInteractionEnabled = false
+        wv.accessibilityElementsHidden = true
         self.backingWebView = wv
         loadHTML()
+    }
+
+    /// Keeps the player in the app window itself. Inside the SwiftUI tree it was detached
+    /// as soon as the full-screen player opened, and a detached WKWebView plays nothing.
+    func attachToWindow() {
+        let wv = webView
+        guard wv.window == nil,
+              let window = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap(\.windows)
+                .first(where: \.isKeyWindow) else { return }
+        wv.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        window.insertSubview(wv, at: 0)
+    }
+
+    // Temporary diagnostics: the request shows up in the server log (404 is expected).
+    private func report(_ event: String) {
+        guard let base = AppConfiguration.apiURL,
+              var components = URLComponents(url: base.appendingPathComponent("api/ios/player-event"), resolvingAgainstBaseURL: false) else { return }
+        components.queryItems = [
+            URLQueryItem(name: "e", value: event),
+            URLQueryItem(name: "v", value: currentVideoId ?? ""),
+            URLQueryItem(name: "win", value: backingWebView?.window == nil ? "0" : "1")
+        ]
+        if let url = components.url { URLSession.shared.dataTask(with: url).resume() }
     }
 
     // YouTube rejects embeds whose host page claims to be youtube.com itself (error 152 on
@@ -66,6 +94,11 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
         <html>
         <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+        <script>
+        window.onerror = function(msg) {
+            window.webkit.messageHandlers.neonwaveBridge.postMessage({ type: 'jserror', msg: String(msg).slice(0, 120) });
+        };
+        </script>
         <script src="https://www.youtube.com/iframe_api"></script>
         <style>
         * { margin:0; padding:0; background:transparent; overflow:hidden; }
@@ -184,6 +217,7 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
+        if type != "time" { report("\(type):\(body["state"] ?? body["code"] ?? body["msg"] ?? "")") }
         switch type {
         case "ready":
             isReady = true
@@ -220,7 +254,8 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
 
     func playVideo(_ videoId: String) {
         currentVideoId = videoId
-        _ = webView
+        attachToWindow()
+        report("play:ready=\(isReady)")
         guard isReady else {
             pendingVideoId = videoId
             return
@@ -229,7 +264,7 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
     }
 
     func resume() {
-        _ = webView
+        attachToWindow()
         webView.evaluateJavaScript("resume();")
     }
 
@@ -251,9 +286,11 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
     }
 }
 
+/// Warms the player up at launch; the web view itself lives in the window (see attachToWindow).
 struct YouTubePlayerWebView: UIViewRepresentable {
-    func makeUIView(context: Context) -> WKWebView {
-        return YouTubePlayer.shared.webView
+    func makeUIView(context: Context) -> UIView {
+        DispatchQueue.main.async { YouTubePlayer.shared.attachToWindow() }
+        return UIView(frame: .zero)
     }
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    func updateUIView(_ uiView: UIView, context: Context) {}
 }
