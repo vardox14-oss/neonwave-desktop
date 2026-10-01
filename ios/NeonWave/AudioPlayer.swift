@@ -452,6 +452,13 @@ private final class SilentAudioKeepAlive {
         musicKitCompletedTrackID = nil
         player.pause()
         player.replaceCurrentItem(with: nil)
+        // Reset du ApplicationMusicPlayer : sans ça, après plusieurs heures
+        // la queue précédente reste dans un état stale et play() échoue en silence
+        // (le symptôme "le matin ça marche, le soir plus").
+        appleMusicPlayer.stop()
+        // MusicKit gère sa propre session audio — on désactive la nôtre pour
+        // éviter le conflit qui bloque le premier play().
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         SilentAudioKeepAlive.shared.stop()
 #if !APPSTORE
         YouTubePlayer.shared.stop()
@@ -471,6 +478,10 @@ private final class SilentAudioKeepAlive {
                 }
                 guard self.current?.id == target.id else { return }
                 self.appleMusicPlayer.queue = ApplicationMusicPlayer.Queue(for: [song], startingAt: song)
+                // MusicKit: la queue doit être préparée avant play(), sinon le premier
+                // appel échoue silencieusement et il faut re-tapoter pour que ça démarre.
+                try await self.appleMusicPlayer.prepareToPlay()
+                guard self.current?.id == target.id else { return }
                 try await self.appleMusicPlayer.play()
                 self.isPlaying = true
                 self.isBuffering = false
