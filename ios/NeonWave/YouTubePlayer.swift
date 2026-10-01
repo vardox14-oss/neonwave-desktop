@@ -50,7 +50,17 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
         loadHTML()
     }
 
+    // YouTube rejects embeds whose host page claims to be youtube.com itself (error 152 on
+    // every video), so the player page is served from the NeonWave server's origin instead.
+    private static var embedOrigin: String {
+        guard let api = AppConfiguration.apiURL, let scheme = api.scheme, let host = api.host else {
+            return "https://neonwave.app"
+        }
+        return api.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
+    }
+
     func loadHTML() {
+        let origin = Self.embedOrigin
         let html = """
         <!DOCTYPE html>
         <html>
@@ -81,7 +91,7 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
                     'fs': 0,
                     'modestbranding': 1,
                     'rel': 0,
-                    'origin': 'https://www.youtube.com'
+                    'origin': '\(origin)'
                 },
                 events: {
                     'onReady': onPlayerReady,
@@ -169,7 +179,7 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
         </body>
         </html>
         """
-        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+        webView.loadHTMLString(html, baseURL: URL(string: origin))
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
