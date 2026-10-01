@@ -62,6 +62,9 @@ const DB_PATH = process.env.NEONWAVE_DB_PATH || path.join(__dirname, '..', 'data
 const DB_BACKUP_PATH = `${DB_PATH}.bak`;
 const LOCAL_TRACKS_DIR = process.env.NEONWAVE_LOCAL_TRACKS_PATH
     || path.join(path.dirname(DB_PATH), 'local-tracks');
+const AUDIO_CACHE_DIR = process.env.NEONWAVE_AUDIO_CACHE_PATH
+    || path.join(path.dirname(DB_PATH), 'cache', 'audio');
+try { fs.mkdirSync(AUDIO_CACHE_DIR, { recursive: true }); } catch (_) {}
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_LOCAL_TRACK_BYTES = 50 * 1024 * 1024;
 const PUBLIC_REGISTRATION_ENABLED = process.env.ALLOW_PUBLIC_REGISTRATION !== 'false';
@@ -2310,8 +2313,46 @@ const fetchYouTube = (url, headers = {}, redirectCount = 0) => {
 
 const youtubeVideoMetadataCache = new Map();
 const YOUTUBE_METADATA_TTL = 6 * 60 * 60 * 1000;
+const TRACK_RESOLUTION_CACHE_FILE = path.join(path.dirname(DB_PATH), 'cache', 'track_resolutions.json');
 const trackResolutionCache = new Map();
-const TRACK_RESOLUTION_TTL = 12 * 60 * 60 * 1000;
+const TRACK_RESOLUTION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 jours (persisté sur SSD)
+
+try {
+    if (fs.existsSync(TRACK_RESOLUTION_CACHE_FILE)) {
+        const raw = JSON.parse(fs.readFileSync(TRACK_RESOLUTION_CACHE_FILE, 'utf8'));
+        if (Array.isArray(raw)) {
+            for (const [k, v] of raw) {
+                if (k && v?.videoId) trackResolutionCache.set(k, v);
+            }
+            console.log(`⚡ Chargé ${trackResolutionCache.size} résolutions de morceaux depuis le SSD.`);
+        }
+    }
+} catch (e) {
+    console.warn('[Track Resolution] Échec chargement cache disque:', e.message);
+}
+
+let saveResolutionTimer = null;
+const saveTrackResolutionsToDisk = () => {
+    if (saveResolutionTimer) return;
+    saveResolutionTimer = setTimeout(() => {
+        saveResolutionTimer = null;
+        try {
+            const dir = path.dirname(TRACK_RESOLUTION_CACHE_FILE);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            const entries = Array.from(trackResolutionCache.entries()).slice(-5000);
+            fs.writeFileSync(TRACK_RESOLUTION_CACHE_FILE, JSON.stringify(entries), 'utf8');
+        } catch (e) {
+            console.warn('[Track Resolution] Échec sauvegarde cache disque:', e.message);
+        }
+    }, 3000);
+};
+
+const origResolutionSet = trackResolutionCache.set.bind(trackResolutionCache);
+trackResolutionCache.set = function (k, v) {
+    const res = origResolutionSet(k, v);
+    saveTrackResolutionsToDisk();
+    return res;
+};
 
 const fetchYouTubeVideoMetadata = async (videoId) => {
     const normalizedVideoId = extractVideoId({ videoId });
@@ -3996,13 +4037,42 @@ const loadAudio = (videoId) => {
     if (existing) return existing;
 
     const promise = (async () => {
+        // 1. Vérifier le cache disque persistant (NVMe SSD, 2ms)
+        const diskFile = path.join(AUDIO_CACHE_DIR, `${videoId}.m4a`);
+        try {
+            if (fs.existsSync(diskFile)) {
+                const stat = await fs.promises.stat(diskFile);
+                if (stat.size > 10000) {
+                    const buffer = await fs.promises.readFile(diskFile);
+                    const isWebm = buffer.length > 4 && buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3;
+                    const entry = { buffer, mimeType: isWebm ? 'audio/webm' : 'audio/mp4' };
+                    audioMemCache.set(videoId, entry);
+                    while (audioMemCache.size > AUDIO_MEM_CACHE_MAX) {
+                        audioMemCache.delete(audioMemCache.keys().next().value);
+                    }
+                    console.log(`   ⚡ Audio servi depuis cache SSD NVMe: ${videoId} (${(buffer.length / 1024 / 1024).toFixed(1)} Mo, 2ms)`);
+                    return entry;
+                }
+            }
+        } catch (err) {
+            console.warn(`[Disk Cache] Erreur lecture ${videoId}:`, err.message);
+        }
+
+        // 2. Téléchargement via yt-dlp ou repli
         const entry = await fetchWholeAudio(videoId);
-        if (entry) {
+        if (entry && entry.buffer?.length) {
             audioMemCache.set(videoId, entry);
             while (audioMemCache.size > AUDIO_MEM_CACHE_MAX) {
                 audioMemCache.delete(audioMemCache.keys().next().value);
             }
-            console.log(`   ✅ Audio prêt (${(entry.buffer.length / 1024 / 1024).toFixed(1)} Mo, ${audioMemCache.size} en cache)`);
+            console.log(`   ✅ Audio prêt (${(entry.buffer.length / 1024 / 1024).toFixed(1)} Mo, ${audioMemCache.size} en cache RAM)`);
+
+            // Persister sur le SSD de manière asynchrone
+            fs.promises.writeFile(diskFile, entry.buffer).then(() => {
+                console.log(`   💾 Audio mis en cache SSD: ${videoId}.m4a`);
+            }).catch((err) => {
+                console.warn(`[Disk Cache] Erreur écriture ${videoId}:`, err.message);
+            });
         }
         return entry;
     })();

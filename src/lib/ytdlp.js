@@ -144,10 +144,10 @@ const downloadAudio = async (videoId) => {
     const useTor = await isTorAvailable();
     if (useTor) console.log(`   🧅 Tor disponible — routage yt-dlp via socks5h://127.0.0.1:9050`);
     const args = [
-        '-v',
         '--no-playlist',
         '--no-warnings',
         '--no-progress',
+        '--no-mtime',
         '--js-runtimes', `node:${getNodePath()}`,
         ...(useTor ? ['--proxy', 'socks5h://127.0.0.1:9050'] : []),
         ...(BGUTIL_PLUGIN_DIR ? ['--plugin-dirs', BGUTIL_PLUGIN_DIR] : []),
