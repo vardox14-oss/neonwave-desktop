@@ -46,59 +46,16 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
         wv.scrollView.backgroundColor = .clear
         wv.scrollView.isScrollEnabled = false
         wv.navigationDelegate = self
-        wv.alpha = 0.01
-        wv.isUserInteractionEnabled = false
-        wv.accessibilityElementsHidden = true
         self.backingWebView = wv
         loadHTML()
     }
 
-    /// Keeps the player in the app window itself. Inside the SwiftUI tree it was detached
-    /// as soon as the full-screen player opened, and a detached WKWebView plays nothing.
-    func attachToWindow() {
-        let wv = webView
-        guard wv.window == nil,
-              let window = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .flatMap(\.windows)
-                .first(where: \.isKeyWindow) else { return }
-        wv.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
-        window.insertSubview(wv, at: 0)
-    }
-
-    // Temporary diagnostics: the request shows up in the server log (404 is expected).
-    private func report(_ event: String) {
-        guard let base = AppConfiguration.apiURL,
-              var components = URLComponents(url: base.appendingPathComponent("api/ios/player-event"), resolvingAgainstBaseURL: false) else { return }
-        components.queryItems = [
-            URLQueryItem(name: "e", value: event),
-            URLQueryItem(name: "v", value: currentVideoId ?? ""),
-            URLQueryItem(name: "win", value: backingWebView?.window == nil ? "0" : "1")
-        ]
-        if let url = components.url { URLSession.shared.dataTask(with: url).resume() }
-    }
-
-    // YouTube rejects embeds whose host page claims to be youtube.com itself (error 152 on
-    // every video), so the player page is served from the NeonWave server's origin instead.
-    private static var embedOrigin: String {
-        guard let api = AppConfiguration.apiURL, let scheme = api.scheme, let host = api.host else {
-            return "https://neonwave.app"
-        }
-        return api.port.map { "\(scheme)://\(host):\($0)" } ?? "\(scheme)://\(host)"
-    }
-
     func loadHTML() {
-        let origin = Self.embedOrigin
         let html = """
         <!DOCTYPE html>
         <html>
         <head>
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-        <script>
-        window.onerror = function(msg) {
-            window.webkit.messageHandlers.neonwaveBridge.postMessage({ type: 'jserror', msg: String(msg).slice(0, 120) });
-        };
-        </script>
         <script src="https://www.youtube.com/iframe_api"></script>
         <style>
         * { margin:0; padding:0; background:transparent; overflow:hidden; }
@@ -108,52 +65,60 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
         <body>
         <div id="player"></div>
         <script>
-        var player;
-        var progressTimer;
+        var player = null;
+        var pendingId = null;
+        var isApiReady = false;
+        var progressTimer = null;
         var lastPlayRequestTime = 0;
         var userRequestedPause = false;
+
         function onYouTubeIframeAPIReady() {
-            player = new YT.Player('player', {
-                width: '100%',
-                height: '100%',
-                playerVars: {
-                    'playsinline': 1,
-                    'autoplay': 1,
-                    'controls': 0,
-                    'disablekb': 1,
-                    'fs': 0,
-                    'modestbranding': 1,
-                    'rel': 0,
-                    'origin': '\(origin)'
-                },
-                events: {
-                    'onReady': onPlayerReady,
-                    'onStateChange': onPlayerStateChange,
-                    'onError': onPlayerError
-                }
-            });
-        }
-        function onPlayerReady(event) {
+            isApiReady = true;
             window.webkit.messageHandlers.neonwaveBridge.postMessage({ type: 'ready' });
+            if (pendingId) {
+                var id = pendingId;
+                pendingId = null;
+                playVideoId(id);
+            }
+        }
+
+        function startProgressTimer() {
             if (progressTimer) clearInterval(progressTimer);
             progressTimer = setInterval(function() {
                 if (player && typeof player.getCurrentTime === 'function' && typeof player.getDuration === 'function') {
+                    var cur = player.getCurrentTime() || 0;
+                    var dur = player.getDuration() || 0;
                     window.webkit.messageHandlers.neonwaveBridge.postMessage({
                         type: 'time',
-                        current: player.getCurrentTime() || 0,
-                        duration: player.getDuration() || 0
+                        current: cur,
+                        duration: dur
                     });
                 }
             }, 250);
         }
+
+        function onPlayerReady(event) {
+            window.webkit.messageHandlers.neonwaveBridge.postMessage({ type: 'ready' });
+            startProgressTimer();
+            try {
+                if (player) {
+                    if (player.unMute) player.unMute();
+                    if (player.setVolume) player.setVolume(100);
+                    if (player.playVideo) player.playVideo();
+                }
+            } catch(e) {}
+        }
+
         function onPlayerStateChange(event) {
             // 1: PLAYING, 2: PAUSED, 0: ENDED, 3: BUFFERING
             window.webkit.messageHandlers.neonwaveBridge.postMessage({
                 type: 'state',
                 state: event.data
             });
-            // If the video pauses right after starting without user input (common on Topic tracks and WebKit autoplay policy), auto-resume
-            if (event.data === 2 && !userRequestedPause && (Date.now() - lastPlayRequestTime) < 2500) {
+            if (event.data === 1) { // PLAYING
+                startProgressTimer();
+            }
+            if (event.data === 2 && !userRequestedPause && (Date.now() - lastPlayRequestTime) < 3000) {
                 setTimeout(function() {
                     try {
                         if (player && !userRequestedPause) {
@@ -165,16 +130,46 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
                 }, 120);
             }
         }
+
         function onPlayerError(event) {
             window.webkit.messageHandlers.neonwaveBridge.postMessage({
                 type: 'error',
                 code: event.data
             });
         }
+
         function playVideoId(id) {
+            if (!id) return;
             lastPlayRequestTime = Date.now();
             userRequestedPause = false;
-            if (player) {
+
+            if (!isApiReady || typeof YT === 'undefined' || !YT.Player) {
+                pendingId = id;
+                return;
+            }
+
+            if (!player) {
+                player = new YT.Player('player', {
+                    width: '100%',
+                    height: '100%',
+                    videoId: id,
+                    playerVars: {
+                        'playsinline': 1,
+                        'autoplay': 1,
+                        'controls': 0,
+                        'disablekb': 1,
+                        'fs': 0,
+                        'modestbranding': 1,
+                        'rel': 0,
+                        'origin': window.location.origin
+                    },
+                    events: {
+                        'onReady': onPlayerReady,
+                        'onStateChange': onPlayerStateChange,
+                        'onError': onPlayerError
+                    }
+                });
+            } else {
                 try {
                     if (player.unMute) player.unMute();
                     if (player.setVolume) player.setVolume(100);
@@ -192,32 +187,36 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
                         if (player && player.playVideo && !userRequestedPause) player.playVideo();
                     } catch(e) {}
                 }, 300);
-            } else {
-                setTimeout(function() { playVideoId(id); }, 150);
             }
         }
+
         function resume() {
             userRequestedPause = false;
             lastPlayRequestTime = Date.now();
-            if (player && player.unMute) player.unMute();
-            if (player && player.setVolume) player.setVolume(100);
-            if (player && player.playVideo) player.playVideo();
+            if (player) {
+                if (player.unMute) player.unMute();
+                if (player.setVolume) player.setVolume(100);
+                if (player.playVideo) player.playVideo();
+            }
         }
+
         function pause() {
             userRequestedPause = true;
             if (player && player.pauseVideo) player.pauseVideo();
         }
-        function seek(sec) { if (player && player.seekTo) player.seekTo(sec, true); }
+
+        function seek(sec) {
+            if (player && player.seekTo) player.seekTo(sec, true);
+        }
         </script>
         </body>
         </html>
         """
-        webView.loadHTMLString(html, baseURL: URL(string: origin))
+        webView.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
-        if type != "time" { report("\(type):\(body["state"] ?? body["code"] ?? body["msg"] ?? "")") }
         switch type {
         case "ready":
             isReady = true
@@ -254,17 +253,17 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
 
     func playVideo(_ videoId: String) {
         currentVideoId = videoId
-        attachToWindow()
-        report("play:ready=\(isReady)")
-        guard isReady else {
-            pendingVideoId = videoId
-            return
+        _ = webView
+        let safeId = videoId.replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "\\", with: "")
+        webView.evaluateJavaScript("playVideoId('\(safeId)');") { [weak self] _, error in
+            if error != nil {
+                self?.pendingVideoId = videoId
+            }
         }
-        webView.evaluateJavaScript("playVideoId('\(videoId)');")
     }
 
     func resume() {
-        attachToWindow()
+        _ = webView
         webView.evaluateJavaScript("resume();")
     }
 
@@ -286,11 +285,9 @@ final class YouTubePlayer: NSObject, ObservableObject, WKScriptMessageHandler, W
     }
 }
 
-/// Warms the player up at launch; the web view itself lives in the window (see attachToWindow).
 struct YouTubePlayerWebView: UIViewRepresentable {
-    func makeUIView(context: Context) -> UIView {
-        DispatchQueue.main.async { YouTubePlayer.shared.attachToWindow() }
-        return UIView(frame: .zero)
+    func makeUIView(context: Context) -> WKWebView {
+        return YouTubePlayer.shared.webView
     }
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
