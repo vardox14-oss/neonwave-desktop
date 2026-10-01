@@ -1,0 +1,68 @@
+name: Unsigned iOS IPA for Sideloadly
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths: ["ios/**", ".github/workflows/ios-ipa.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the native iPhone project
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build the SwiftUI app for iOS device (unsigned)
+        run: |
+          set -euo pipefail
+          mkdir -p ios/build
+          xcodebuild -version
+          xcodebuild \
+            -project ios/NeonWave.xcodeproj \
+            -scheme NeonWave \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath ios/DerivedData \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee ios/build/xcodebuild-device.log
+
+      - name: Package .app into unsigned .ipa (Payload/)
+        run: |
+          set -euo pipefail
+          APP_PATH=ios/DerivedData/Build/Products/Release-iphoneos/NeonWave.app
+          test -d "$APP_PATH"
+          STAGING=$(mktemp -d)
+          mkdir -p "$STAGING/Payload"
+          cp -R "$APP_PATH" "$STAGING/Payload/"
+          # Strip any residual embedded provisioning / signatures so Sideloadly re-signs cleanly
+          rm -rf "$STAGING/Payload/NeonWave.app/_CodeSignature" \
+                 "$STAGING/Payload/NeonWave.app/embedded.mobileprovision" || true
+          (cd "$STAGING" && zip -qr "$GITHUB_WORKSPACE/ios/build/NeonWave-unsigned.ipa" Payload)
+          ls -lh ios/build/NeonWave-unsigned.ipa
+
+      - name: Upload unsigned IPA
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: NeonWave-unsigned-ipa
+          path: |
+            ios/build/NeonWave-unsigned.ipa
+            ios/build/xcodebuild-device.log
+          if-no-files-found: warn
+          retention-days: 7
