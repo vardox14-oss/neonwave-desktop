@@ -141,13 +141,21 @@ const downloadAudio = async (videoId) => {
     const url = `https://www.youtube.com/watch?v=${videoId}`;
     const tempFile = path.join(os.tmpdir(), `nw-${videoId}-${Date.now()}.m4a`);
     const cookiesFile = getCookiesPath();
-    const useTor = await isTorAvailable();
-    if (useTor) console.log(`   🧅 Tor disponible — routage yt-dlp via socks5h://127.0.0.1:9050`);
+    const torAvailable = await isTorAvailable();
+    // Ne jamais router des cookies de session via Tor : Google flagge immédiatement
+    // la session lors d'un saut soudain d'IP vers un nœud de sortie Tor inconnu.
+    const useTor = torAvailable && !cookiesFile;
+    if (useTor) {
+        console.log(`   🧅 Tor disponible — routage yt-dlp via socks5h://127.0.0.1:9050`);
+    } else if (cookiesFile) {
+        console.log(`   🍪 Cookies actifs — connexion directe sécurisée (Tor désactivé)`);
+    }
     const args = [
         '--no-playlist',
         '--no-warnings',
         '--no-progress',
         '--no-mtime',
+        '--no-cache-dir',
         '--js-runtimes', `node:${getNodePath()}`,
         ...(useTor ? ['--proxy', 'socks5h://127.0.0.1:9050'] : []),
         ...(BGUTIL_PLUGIN_DIR ? ['--plugin-dirs', BGUTIL_PLUGIN_DIR] : []),
