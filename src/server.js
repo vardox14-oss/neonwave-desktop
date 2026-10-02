@@ -3989,6 +3989,20 @@ const fetchInChunks = async (videoId, firstSource, totalBytes) => {
 // Récupère l'audio complet en mémoire. Moteur principal : yt-dlp (contourne le
 // throttling et les reuploads bridées). Repli : extraction youtubei.js directe.
 const fetchWholeAudio = async (videoId) => {
+    // 0. Relais résidentiel (PC local via tunnel reverse SSH port 5055)
+    try {
+        const relayResp = await fetch(`http://127.0.0.1:5055/download?videoId=${videoId}`, {
+            signal: AbortSignal.timeout(35000)
+        });
+        if (relayResp.ok) {
+            const buffer = Buffer.from(await relayResp.arrayBuffer());
+            if (buffer.length > 10000) {
+                console.log(`   🚀 Audio téléchargé via PC Relay résidentiel (${(buffer.length / 1024 / 1024).toFixed(1)} Mo)`);
+                return { buffer, mimeType: 'audio/mp4' };
+            }
+        }
+    } catch (_) {}
+
     // 1. yt-dlp (robuste)
     try {
         const result = await ytdlp.downloadAudio(videoId);
