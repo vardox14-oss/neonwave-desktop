@@ -635,6 +635,9 @@ enum CrossfadeMath {
                             if let thumb = media.thumbnail, !thumb.isEmpty, (self.queue[self.index].artworkURL == nil || self.queue[self.index].artworkURL?.isEmpty == true) {
                                 self.queue[self.index].artworkURL = thumb
                             }
+                            if let stream = media.streamURL {
+                                self.queue[self.index].streamURL = stream.absoluteString
+                            }
                             self.current = self.queue[self.index]
                         }
                         if self.duration > 0 && (self.lyricsRequestedDuration == 0 || abs(self.lyricsRequestedDuration - self.duration) > 2) {
@@ -808,7 +811,7 @@ enum CrossfadeMath {
                     print("⚠️ AVPlayer playback failed for \(url): \(String(describing: item.error))")
                     if let fallbackVideoId {
                         Task {
-                            if let sURL = await MusicCatalogService.serverStreamURL(videoId: fallbackVideoId), sURL != url {
+                            if let sURL = await MusicCatalogService.nativeStreamURL(videoId: fallbackVideoId), sURL != url {
                                 await MainActor.run {
                                     self.startAVPlayerPlayback(url: sURL, fallbackVideoId: nil)
                                 }
@@ -818,6 +821,8 @@ enum CrossfadeMath {
                                 self.startYouTubePlayback(videoId: fallbackVideoId)
                             }
                         }
+                    } else if let fallbackStream = self.current?.streamURL, let fallbackURL = URL(string: fallbackStream), fallbackURL != url {
+                        self.startAVPlayerPlayback(url: fallbackURL, fallbackVideoId: nil)
                     } else {
                         self.error = "Ce flux audio ne peut pas être lu."
                         self.pause()
@@ -894,7 +899,7 @@ enum CrossfadeMath {
               queue.indices.contains(nextIndex) else { return }
         let nextTrack = queue[nextIndex]
         if nextTrack.appleMusicID != nil || library?.localURL(nextTrack) != nil { return }
-        if nextTrack.streamURL != nil { return }
+        if let stream = nextTrack.streamURL, !isPreviewStream(stream) { return }
 
         preloadTask = Task.detached(priority: .utility) { [weak self] in
             // Pause 2 seconds so the current song's initial playback is completely smooth

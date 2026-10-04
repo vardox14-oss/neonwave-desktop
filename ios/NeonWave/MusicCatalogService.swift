@@ -147,7 +147,7 @@ enum MusicCatalogService {
                             duration: Double(item.duration),
                             album: item.album?.title,
                             artworkURL: cover,
-                            streamURL: nil
+                            streamURL: item.preview
                         )
                     }
                 }
@@ -171,7 +171,7 @@ enum MusicCatalogService {
                             duration: dur,
                             album: item.collectionName,
                             artworkURL: cover,
-                            streamURL: nil
+                            streamURL: item.previewUrl
                         )
                     }
                 }
@@ -222,7 +222,7 @@ enum MusicCatalogService {
                         duration: Double(item.duration),
                         album: albumTitle,
                         artworkURL: coverURL,
-                        streamURL: nil
+                        streamURL: item.preview
                     )
                 }
             }
@@ -250,9 +250,15 @@ enum MusicCatalogService {
     }
 
     static func nativeStreamURL(videoId: String) async -> URL? {
-        // Progressive M4A stream served by VPS with HTTP 206 Partial Content.
-        // 100% compatible with native AVPlayer, lockscreen controls, and background audio.
-        return await serverStreamURL(videoId: videoId)
+        // 1. Prioritize direct on-device extraction via YouTube InnerTube (uses device residential/cellular IP, fast, no datacenter block)
+        if let deviceURL = await deviceAudioURL(videoId: videoId) {
+            return deviceURL
+        }
+        // 2. Secondary fallback: Progressive M4A stream served by VPS with HTTP 206
+        if let serverURL = await serverStreamURL(videoId: videoId) {
+            return serverURL
+        }
+        return nil
     }
 
     static func serverStreamURL(videoId: String) async -> URL? {
@@ -269,35 +275,52 @@ enum MusicCatalogService {
     static func selectDeviceAudioURL(_ data: Data, videoId: String) -> URL? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let status = root["playabilityStatus"] as? [String: Any], status["status"] as? String == "OK",
-              let details = root["videoDetails"] as? [String: Any], details["videoId"] as? String == videoId,
-              let streaming = root["streamingData"] as? [String: Any],
-              let formats = streaming["adaptiveFormats"] as? [[String: Any]] else { return nil }
-        let audio = formats.filter {
-            ($0["mimeType"] as? String)?.hasPrefix("audio/mp4") == true && $0["drmFamilies"] == nil
-        }.sorted {
-            if ($0["itag"] as? Int == 140) != ($1["itag"] as? Int == 140) { return $0["itag"] as? Int == 140 }
-            return ($0["bitrate"] as? Int ?? 0) > ($1["bitrate"] as? Int ?? 0)
+              let streaming = root["streamingData"] as? [String: Any] else { return nil }
+
+        // 1. Audio-only formats (m4a / aac itag 140 prioritized, or webm)
+        if let formats = streaming["adaptiveFormats"] as? [[String: Any]] {
+            let audio = formats.filter {
+                guard let mime = $0["mimeType"] as? String else { return false }
+                return (mime.hasPrefix("audio/mp4") || mime.hasPrefix("audio/webm")) && $0["drmFamilies"] == nil
+            }.sorted {
+                let is140_0 = ($0["itag"] as? Int) == 140
+                let is140_1 = ($1["itag"] as? Int) == 140
+                if is140_0 != is140_1 { return is140_0 }
+                let isM4a_0 = ($0["mimeType"] as? String)?.hasPrefix("audio/mp4") == true
+                let isM4a_1 = ($1["mimeType"] as? String)?.hasPrefix("audio/mp4") == true
+                if isM4a_0 != isM4a_1 { return isM4a_0 }
+                return ($0["bitrate"] as? Int ?? 0) > ($1["bitrate"] as? Int ?? 0)
+            }
+            for format in audio {
+                guard let raw = format["url"] as? String, let url = URL(string: raw),
+                      url.scheme == "https", let host = url.host,
+                      host.hasSuffix(".googlevideo.com") else { continue }
+                return url
+            }
         }
-        for format in audio {
-            guard let raw = format["url"] as? String, let url = URL(string: raw),
-                  url.scheme == "https", let host = url.host,
-                  host.hasSuffix(".googlevideo.com") else { continue }
-            return url
+
+        // 2. Combined progressive formats (e.g. itag 18 mp4 360p - AVPlayer natively plays audio stream)
+        if let formats = streaming["formats"] as? [[String: Any]] {
+            for format in formats {
+                guard let raw = format["url"] as? String, let url = URL(string: raw),
+                      url.scheme == "https", let host = url.host,
+                      host.hasSuffix(".googlevideo.com") else { continue }
+                return url
+            }
         }
         return nil
     }
 
-    private static func deviceAudioURL(videoId: String) async -> URL? {
+    static func deviceAudioURL(videoId: String) async -> URL? {
         guard videoId.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else { return nil }
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 12
-        configuration.timeoutIntervalForResource = 20
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 12
         let session = URLSession(configuration: configuration)
         defer { session.finishTasksAndInvalidate() }
 
-        // Client configs to try in order — iOS is most reliable (privileged, no PO token needed)
+        // Client configs to try in order — iOS is most reliable (privileged, signed URLs, no PO token required)
         let clients: [[String: Any]] = [
-            // iOS native client — signed URLs, no PO token required
             [
                 "clientName": "IOS", "clientVersion": "20.03.02",
                 "deviceMake": "Apple", "deviceModel": "iPhone16,2",
@@ -305,19 +328,19 @@ enum MusicCatalogService {
                 "osName": "iPhone", "osVersion": "18.3.2.22D82",
                 "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0
             ],
-            // TV embedded — still works without login for most videos
             [
                 "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER", "clientVersion": "2.0",
                 "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0
             ]
         ]
-        let clientNames = [5, 85] // matching InnerTube clientName IDs
+        let clientNames = [5, 85]
 
         for (idx, client) in clients.enumerated() {
             guard !Task.isCancelled else { return nil }
             do {
                 let uaHeader = (client["userAgent"] as? String) ?? "com.google.ios.youtube/20.03.02 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X)"
-                var request = URLRequest(url: URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")!)
+                guard let endpoint = URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false") else { continue }
+                var request = URLRequest(url: endpoint)
                 request.httpMethod = "POST"
                 request.setValue(uaHeader, forHTTPHeaderField: "User-Agent")
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -331,12 +354,6 @@ enum MusicCatalogService {
                 let (data, response) = try await session.data(for: request)
                 guard !Task.isCancelled, (response as? HTTPURLResponse)?.statusCode == 200,
                       let url = selectDeviceAudioURL(data, videoId: videoId) else { continue }
-                // Quick probe to confirm URL is actually accessible from this device
-                var probe = URLRequest(url: url)
-                probe.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
-                let (bytes, probeResponse) = try await URLSession.shared.data(for: probe)
-                guard !Task.isCancelled, let http = probeResponse as? HTTPURLResponse,
-                      http.statusCode == 206, bytes.count > 0 else { continue }
                 return url
             } catch { continue }
         }
@@ -377,12 +394,7 @@ enum MusicCatalogService {
                     }
                     return nil
                 }()
-                let finalStreamURL: URL?
-                if let sURL {
-                    finalStreamURL = sURL
-                } else {
-                    finalStreamURL = await nativeStreamURL(videoId: resolved.videoId)
-                }
+                let streamURL = await nativeStreamURL(videoId: resolved.videoId) ?? sURL
                 return ResolvedMedia(
                     videoId: resolved.videoId,
                     duration: resolved.duration,
@@ -390,7 +402,7 @@ enum MusicCatalogService {
                     artist: resolved.artist,
                     spotifyId: resolved.spotifyId ?? spotifyId,
                     thumbnail: resolved.thumbnail,
-                    streamURL: finalStreamURL
+                    streamURL: streamURL
                 )
             }
         }
