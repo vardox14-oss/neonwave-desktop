@@ -23,5 +23,8 @@ spotify-session.json
 build-cache/
 ipa-out/
 *.ipa
+💻_VERSION_PC/Executables_Windows/
+📱_VERSION_IOS/Scripts_Compilation_CI/
+📱_VERSION_IOS/Anciens_Builds_IPA/
 # Token Spotify embarqué (cookie sp_dc du proprio) — NE JAMAIS committer
 src/lib/spotify-embedded.js
