@@ -741,11 +741,27 @@ enum CrossfadeMath {
                     guard self.current?.id == trackID else { return }
                     self.startAVPlayerPlayback(url: streamURL, fallbackVideoId: videoId)
                 }
-            } else {
-                // 2. Fallback to YouTube embed player
+            } else if let hlsURL = await MusicCatalogService.hlsStreamURL(videoId: videoId) {
                 await MainActor.run {
                     guard self.current?.id == trackID else { return }
-                    self.startYouTubePlayback(videoId: videoId)
+                    self.startAVPlayerPlayback(url: hlsURL, fallbackVideoId: videoId)
+                }
+            } else if let cur = self.current,
+                      let altVid = await MusicCatalogService.resolveAlternativeYouTubeId(title: cur.title, artist: cur.artist, excludeVideoId: videoId),
+                      let altURL = await MusicCatalogService.nativeStreamURL(videoId: altVid) {
+                await MainActor.run {
+                    guard self.current?.id == trackID else { return }
+                    if self.queue.indices.contains(self.index) {
+                        self.queue[self.index].videoId = altVid
+                        self.current = self.queue[self.index]
+                    }
+                    self.startAVPlayerPlayback(url: altURL, fallbackVideoId: altVid)
+                }
+            } else {
+                await MainActor.run {
+                    guard self.current?.id == trackID else { return }
+                    self.error = "Impossible de charger ce titre."
+                    self.pause()
                 }
             }
         }
@@ -766,20 +782,21 @@ enum CrossfadeMath {
             await MainActor.run {
                 guard let self, self.isYouTubeActive, self.isBuffering, !self.isPlaying, let cur = self.current else { return }
                 Task {
-                    // 1. Try native/server stream URL
+                    // 1. Try native stream URL
                     if let streamURL = await MusicCatalogService.nativeStreamURL(videoId: videoId) {
                         await MainActor.run {
                             guard self.current?.id == cur.id, self.isYouTubeActive, !self.isPlaying else { return }
                             self.startAVPlayerPlayback(url: streamURL)
                         }
-                    } else if let altVid = await MusicCatalogService.resolveAlternativeYouTubeId(title: cur.title, artist: cur.artist, excludeVideoId: videoId) {
+                    } else if let altVid = await MusicCatalogService.resolveAlternativeYouTubeId(title: cur.title, artist: cur.artist, excludeVideoId: videoId),
+                              let altURL = await MusicCatalogService.nativeStreamURL(videoId: altVid) {
                         await MainActor.run {
                             guard self.current?.id == cur.id, self.isYouTubeActive, !self.isPlaying else { return }
                             if self.queue.indices.contains(self.index) {
                                 self.queue[self.index].videoId = altVid
                                 self.current = self.queue[self.index]
                             }
-                            self.startYouTubePlayback(videoId: altVid)
+                            self.startAVPlayerPlayback(url: altURL, fallbackVideoId: altVid)
                         }
                     } else if let stream = cur.streamURL, let url = URL(string: stream) {
                         await MainActor.run {
@@ -811,14 +828,37 @@ enum CrossfadeMath {
                     print("⚠️ AVPlayer playback failed for \(url): \(String(describing: item.error))")
                     if let fallbackVideoId {
                         Task {
+                            // 1. Try Apple HLS stream manifest first
+                            if !url.absoluteString.contains("manifest/hls"),
+                               let hlsURL = await MusicCatalogService.hlsStreamURL(videoId: fallbackVideoId) {
+                                await MainActor.run {
+                                    self.startAVPlayerPlayback(url: hlsURL, fallbackVideoId: fallbackVideoId)
+                                }
+                                return
+                            }
+                            // 2. Try fresh native stream URL
                             if let sURL = await MusicCatalogService.nativeStreamURL(videoId: fallbackVideoId), sURL != url {
                                 await MainActor.run {
                                     self.startAVPlayerPlayback(url: sURL, fallbackVideoId: nil)
                                 }
                                 return
                             }
+                            // 3. Try alternative YouTube match (e.g. topic track vs official audio)
+                            if let cur = self.current,
+                               let altVid = await MusicCatalogService.resolveAlternativeYouTubeId(title: cur.title, artist: cur.artist, excludeVideoId: fallbackVideoId),
+                               let altURL = await MusicCatalogService.nativeStreamURL(videoId: altVid) {
+                                await MainActor.run {
+                                    if self.queue.indices.contains(self.index) {
+                                        self.queue[self.index].videoId = altVid
+                                        self.current = self.queue[self.index]
+                                    }
+                                    self.startAVPlayerPlayback(url: altURL, fallbackVideoId: altVid)
+                                }
+                                return
+                            }
                             await MainActor.run {
-                                self.startYouTubePlayback(videoId: fallbackVideoId)
+                                self.error = "Erreur de lecture du titre."
+                                self.pause()
                             }
                         }
                     } else if let fallbackStream = self.current?.streamURL, let fallbackURL = URL(string: fallbackStream), fallbackURL != url {

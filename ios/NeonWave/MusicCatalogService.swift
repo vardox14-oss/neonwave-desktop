@@ -249,27 +249,188 @@ enum MusicCatalogService {
         let duration: Double?
     }
 
-    static func nativeStreamURL(videoId: String) async -> URL? {
-        // 1. Prioritize direct on-device extraction via YouTube InnerTube (uses device residential/cellular IP, fast, no datacenter block)
-        if let deviceURL = await deviceAudioURL(videoId: videoId) {
-            return deviceURL
+    private static var cachedVisitorData: String? = nil
+    private static var visitorDataTimestamp: Date? = nil
+
+    private static func fetchVisitorData(session: URLSession, videoId: String) async -> (visitorData: String?, signatureTimestamp: Int) {
+        if let cached = cachedVisitorData,
+           let ts = visitorDataTimestamp,
+           Date().timeIntervalSince(ts) < 21600 { // 6-hour validity
+            return (cached, 20725)
         }
-        // 2. Secondary fallback: Progressive M4A stream served by VPS with HTTP 206
-        if let serverURL = await serverStreamURL(videoId: videoId) {
-            return serverURL
+
+        let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
+        guard let url = URL(string: "https://www.youtube.com/watch?v=\(videoId)") else {
+            return (nil, 20725)
         }
-        return nil
+
+        var req = URLRequest(url: url)
+        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+
+        guard let (data, resp) = try? await session.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let html = String(data: data, encoding: .utf8) else {
+            return (nil, 20725)
+        }
+
+        var visitor: String? = nil
+        var sts: Int = 20725
+
+        if let match = html.range(of: "\"VISITOR_DATA\":\\s*\"([^\"]+)\"", options: .regularExpression) {
+            let sub = String(html[match])
+            if let colon = sub.firstIndex(of: ":") {
+                let rem = sub[colon...]
+                if let q1 = rem.firstIndex(of: "\""),
+                   let nextIdx = rem.index(q1, offsetBy: 1, limitedBy: rem.endIndex),
+                   let q2 = rem[nextIdx...].firstIndex(of: "\"") {
+                    visitor = String(rem[nextIdx..<q2])
+                }
+            }
+        }
+
+        if let match = html.range(of: "\"signatureTimestamp\":\\s*(\\d+)", options: .regularExpression) {
+            let sub = String(html[match])
+            let digits = sub.filter { $0.isNumber }
+            if let val = Int(digits) {
+                sts = val
+            }
+        }
+
+        if let visitor, !visitor.isEmpty {
+            cachedVisitorData = visitor
+            visitorDataTimestamp = Date()
+        }
+        return (visitor, sts)
     }
 
-    static func serverStreamURL(videoId: String) async -> URL? {
-        guard !Task.isCancelled else { return nil }
-        guard let baseURL = AppConfiguration.apiURL,
-              let response: StreamTicketResponse = try? await APIClient().call(
-                "api/music/streams/\(videoId)/ticket",
-                method: "POST",
-                authenticated: false
-              ) else { return nil }
-        return URL(string: response.path, relativeTo: baseURL)?.absoluteURL
+    static func fetchPlayerResponseData(videoId: String) async -> Data? {
+        guard videoId.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else { return nil }
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 12
+        let session = URLSession(configuration: configuration)
+        defer { session.finishTasksAndInvalidate() }
+
+        let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
+
+        // 1. Acquire visitor data (cached or fast fetch)
+        let (visitorData, signatureTimestamp) = await fetchVisitorData(session: session, videoId: videoId)
+
+        // 2. Query InnerTube using VISIONOS client (bypasses GoogleVideo 403 range restrictions, gives format 140 & Apple HLS)
+        guard let endpoint = URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false") else { return nil }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("101", forHTTPHeaderField: "X-Youtube-Client-Name")
+        request.setValue("1.02", forHTTPHeaderField: "X-Youtube-Client-Version")
+        request.setValue("https://www.youtube.com", forHTTPHeaderField: "Origin")
+        if let visitorData, !visitorData.isEmpty {
+            request.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
+        }
+
+        var clientDict: [String: Any] = [
+            "clientName": "VISIONOS",
+            "clientVersion": "1.02",
+            "deviceMake": "Apple",
+            "deviceModel": "RealityDevice17,1",
+            "userAgent": userAgent,
+            "osName": "visionOS",
+            "osVersion": "26.5.23O471",
+            "hl": "en",
+            "timeZone": "UTC",
+            "utcOffsetMinutes": 0
+        ]
+        if let visitorData, !visitorData.isEmpty {
+            clientDict["visitorData"] = visitorData
+        }
+
+        let bodyDict: [String: Any] = [
+            "context": ["client": clientDict],
+            "videoId": videoId,
+            "playbackContext": [
+                "contentPlaybackContext": [
+                    "html5Preference": "HTML5_PREF_WANTS",
+                    "signatureTimestamp": signatureTimestamp
+                ]
+            ],
+            "contentCheckOk": true,
+            "racyCheckOk": true
+        ]
+
+        if let bodyData = try? JSONSerialization.data(withJSONObject: bodyDict) {
+            request.httpBody = bodyData
+            if let (data, response) = try? await session.data(for: request),
+               (response as? HTTPURLResponse)?.statusCode == 200,
+               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let status = root["playabilityStatus"] as? [String: Any],
+               status["status"] as? String == "OK" {
+                return data
+            }
+        }
+
+        // 3. Retry once with refreshed visitor token if initial query failed
+        if cachedVisitorData != nil {
+            cachedVisitorData = nil
+            visitorDataTimestamp = nil
+            let (freshVisitor, freshSts) = await fetchVisitorData(session: session, videoId: videoId)
+            var retryClient = clientDict
+            if let freshVisitor {
+                retryClient["visitorData"] = freshVisitor
+                request.setValue(freshVisitor, forHTTPHeaderField: "X-Goog-Visitor-Id")
+            }
+            let retryBody: [String: Any] = [
+                "context": ["client": retryClient],
+                "videoId": videoId,
+                "playbackContext": [
+                    "contentPlaybackContext": [
+                        "html5Preference": "HTML5_PREF_WANTS",
+                        "signatureTimestamp": freshSts
+                    ]
+                ],
+                "contentCheckOk": true,
+                "racyCheckOk": true
+            ]
+            if let rData = try? JSONSerialization.data(withJSONObject: retryBody) {
+                request.httpBody = rData
+                if let (data, response) = try? await session.data(for: request),
+                   (response as? HTTPURLResponse)?.statusCode == 200,
+                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let status = root["playabilityStatus"] as? [String: Any],
+                   status["status"] as? String == "OK" {
+                    return data
+                }
+            }
+        }
+
+        // 4. Secondary fallback: iOS client
+        let iosClient: [String: Any] = [
+            "clientName": "IOS", "clientVersion": "20.03.02",
+            "deviceMake": "Apple", "deviceModel": "iPhone16,2",
+            "userAgent": "com.google.ios.youtube/20.03.02 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X)",
+            "osName": "iPhone", "osVersion": "18.3.2.22D82",
+            "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0
+        ]
+        var iosReq = URLRequest(url: endpoint)
+        iosReq.httpMethod = "POST"
+        iosReq.setValue(iosClient["userAgent"] as? String, forHTTPHeaderField: "User-Agent")
+        iosReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        iosReq.setValue("5", forHTTPHeaderField: "X-Youtube-Client-Name")
+        iosReq.setValue("20.03.02", forHTTPHeaderField: "X-Youtube-Client-Version")
+        iosReq.setValue("https://www.youtube.com", forHTTPHeaderField: "Origin")
+        if let iosBody = try? JSONSerialization.data(withJSONObject: [
+            "context": ["client": iosClient], "videoId": videoId,
+            "contentCheckOk": true, "racyCheckOk": true
+        ]) {
+            iosReq.httpBody = iosBody
+            if let (data, response) = try? await session.data(for: iosReq),
+               (response as? HTTPURLResponse)?.statusCode == 200 {
+                return data
+            }
+        }
+
+        return nil
     }
 
     static func selectDeviceAudioURL(_ data: Data, videoId: String) -> URL? {
@@ -277,7 +438,7 @@ enum MusicCatalogService {
               let status = root["playabilityStatus"] as? [String: Any], status["status"] as? String == "OK",
               let streaming = root["streamingData"] as? [String: Any] else { return nil }
 
-        // 1. Audio-only formats (m4a / aac itag 140 prioritized, or webm)
+        // 1. Audio-only formats (m4a / aac itag 140 prioritized)
         if let formats = streaming["adaptiveFormats"] as? [[String: Any]] {
             let audio = formats.filter {
                 guard let mime = $0["mimeType"] as? String else { return false }
@@ -299,7 +460,13 @@ enum MusicCatalogService {
             }
         }
 
-        // 2. Combined progressive formats (e.g. itag 18 mp4 360p - AVPlayer natively plays audio stream)
+        // 2. Apple HLS streaming manifest (.m3u8)
+        if let hls = streaming["hlsManifestUrl"] as? String, let hlsURL = URL(string: hls),
+           hlsURL.scheme == "https" {
+            return hlsURL
+        }
+
+        // 3. Combined progressive formats
         if let formats = streaming["formats"] as? [[String: Any]] {
             for format in formats {
                 guard let raw = format["url"] as? String, let url = URL(string: raw),
@@ -311,53 +478,41 @@ enum MusicCatalogService {
         return nil
     }
 
+    static func hlsStreamURL(videoId: String) async -> URL? {
+        guard let data = await fetchPlayerResponseData(videoId: videoId) else { return nil }
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let streaming = root["streamingData"] as? [String: Any],
+              let hls = streaming["hlsManifestUrl"] as? String,
+              let hlsURL = URL(string: hls), hlsURL.scheme == "https" else { return nil }
+        return hlsURL
+    }
+
     static func deviceAudioURL(videoId: String) async -> URL? {
-        guard videoId.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else { return nil }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 8
-        configuration.timeoutIntervalForResource = 12
-        let session = URLSession(configuration: configuration)
-        defer { session.finishTasksAndInvalidate() }
+        guard let data = await fetchPlayerResponseData(videoId: videoId) else { return nil }
+        return selectDeviceAudioURL(data, videoId: videoId)
+    }
 
-        // Client configs to try in order — iOS is most reliable (privileged, signed URLs, no PO token required)
-        let clients: [[String: Any]] = [
-            [
-                "clientName": "IOS", "clientVersion": "20.03.02",
-                "deviceMake": "Apple", "deviceModel": "iPhone16,2",
-                "userAgent": "com.google.ios.youtube/20.03.02 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X)",
-                "osName": "iPhone", "osVersion": "18.3.2.22D82",
-                "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0
-            ],
-            [
-                "clientName": "TVHTML5_SIMPLY_EMBEDDED_PLAYER", "clientVersion": "2.0",
-                "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0
-            ]
-        ]
-        let clientNames = [5, 85]
-
-        for (idx, client) in clients.enumerated() {
-            guard !Task.isCancelled else { return nil }
-            do {
-                let uaHeader = (client["userAgent"] as? String) ?? "com.google.ios.youtube/20.03.02 (iPhone; CPU iPhone OS 18_3_2 like Mac OS X)"
-                guard let endpoint = URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false") else { continue }
-                var request = URLRequest(url: endpoint)
-                request.httpMethod = "POST"
-                request.setValue(uaHeader, forHTTPHeaderField: "User-Agent")
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue(String(clientNames[idx]), forHTTPHeaderField: "X-Youtube-Client-Name")
-                request.setValue(client["clientVersion"] as? String ?? "20.03.02", forHTTPHeaderField: "X-Youtube-Client-Version")
-                request.setValue("https://www.youtube.com", forHTTPHeaderField: "Origin")
-                request.httpBody = try JSONSerialization.data(withJSONObject: [
-                    "context": ["client": client], "videoId": videoId,
-                    "contentCheckOk": true, "racyCheckOk": true
-                ])
-                let (data, response) = try await session.data(for: request)
-                guard !Task.isCancelled, (response as? HTTPURLResponse)?.statusCode == 200,
-                      let url = selectDeviceAudioURL(data, videoId: videoId) else { continue }
-                return url
-            } catch { continue }
+    static func nativeStreamURL(videoId: String) async -> URL? {
+        // 1. Prioritize direct on-device extraction via YouTube InnerTube (uses device residential/cellular IP, fast, no datacenter block)
+        if let deviceURL = await deviceAudioURL(videoId: videoId) {
+            return deviceURL
+        }
+        // 2. Secondary fallback: Progressive M4A stream served by VPS with HTTP 206
+        if let serverURL = await serverStreamURL(videoId: videoId) {
+            return serverURL
         }
         return nil
+    }
+
+    static func serverStreamURL(videoId: String) async -> URL? {
+        guard !Task.isCancelled else { return nil }
+        guard let baseURL = AppConfiguration.apiURL,
+              let response: StreamTicketResponse = try? await APIClient().call(
+                "api/music/streams/\(videoId)/ticket",
+                method: "POST",
+                authenticated: false
+              ) else { return nil }
+        return URL(string: response.path, relativeTo: baseURL)?.absoluteURL
     }
 
     static func resolveTrackMedia(title: String, artist: String, duration: Double = 0, spotifyId: String? = nil) async -> ResolvedMedia? {

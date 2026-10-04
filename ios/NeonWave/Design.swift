@@ -10,12 +10,12 @@ enum NW {
     static let accent = Color(red: 0.12, green: 0.52, blue: 1.0) // Vibrant Electric Blue
     static let muted = Color(white: 0.56)
     static let colors: [[Color]] = [
-        [.init(red: 0.27, green: 0.40, blue: 1), .init(red: 0.08, green: 0.10, blue: 0.34)],
-        [.init(red: 0.94, green: 0.42, blue: 0.30), .init(red: 0.31, green: 0.08, blue: 0.19)],
-        [.init(red: 0.54, green: 0.35, blue: 0.95), .init(red: 0.17, green: 0.08, blue: 0.28)],
-        [.init(red: 0.18, green: 0.67, blue: 0.58), .init(red: 0.04, green: 0.20, blue: 0.24)],
-        [.init(red: 0.96, green: 0.70, blue: 0.32), .init(red: 0.36, green: 0.16, blue: 0.12)],
-        [.init(red: 0.85, green: 0.36, blue: 0.61), .init(red: 0.26, green: 0.09, blue: 0.29)]
+        [.init(red: 0.12, green: 0.52, blue: 1.0), .init(red: 0.05, green: 0.12, blue: 0.35)], // Electric Blue
+        [.init(red: 0.08, green: 0.68, blue: 0.88), .init(red: 0.03, green: 0.18, blue: 0.30)], // Cyan Neon
+        [.init(red: 0.38, green: 0.28, blue: 0.96), .init(red: 0.10, green: 0.06, blue: 0.32)], // Electric Indigo
+        [.init(red: 0.10, green: 0.72, blue: 0.62), .init(red: 0.02, green: 0.20, blue: 0.22)], // Neon Emerald
+        [.init(red: 0.22, green: 0.45, blue: 0.98), .init(red: 0.06, green: 0.14, blue: 0.38)], // Sapphire
+        [.init(red: 0.52, green: 0.30, blue: 0.95), .init(red: 0.14, green: 0.06, blue: 0.30)]  // Deep Violet
     ]
 }
 
